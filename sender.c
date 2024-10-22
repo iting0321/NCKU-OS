@@ -1,22 +1,152 @@
 #include "sender.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <semaphore.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 
-void send(message_t message, mailbox_t* mailbox_ptr){
-    /*  TODO: 
-        1. Use flag to determine the communication method
-        2. According to the communication method, send the message
-    */
+#define SHM_SIZE 1024
+#define SEM_NAME "/sem_example"
+#define EXIT_MSG "EXIT"
+#define SHM_NAME "/posix_shm_example"
+#define SEM_EMPTY "/posix_sem_empty"
+#define SEM_FULL "/posix_sem_full"
+
+sem_t* sem_empty = NULL;
+sem_t* sem_full = NULL;
+
+void send(message_t message, mailbox_t* mailbox_ptr, double* time_spent) {
+    struct timespec start, end;
+
+    sem_wait(sem_empty);
+
+    if (mailbox_ptr->flag == 1) {
+        // Message Passing (System V)
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        if (msgsnd(mailbox_ptr->storage.msqid, &message, sizeof(message_t), 0) == -1) {
+            perror("msgsnd failed");
+            exit(EXIT_FAILURE);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &end);
+    } 
+    else if (mailbox_ptr->flag == 2) {
+        
+        // Shared Memory
+        printf("Sending Message : %s\n",message.text);
+        
+        int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0644);
+        if (shm_fd == -1) {
+            perror("shm_open failed");
+            exit(EXIT_FAILURE);
+        }
+        ftruncate(shm_fd, SHM_SIZE);
+
+        // Map shared memory to address space
+        mailbox_ptr->storage.shm_addr = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+        if (mailbox_ptr->storage.shm_addr == MAP_FAILED) {
+            perror("mmap failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Open semaphores
+        // sem_init(&sem,1,2);
+       
+
+        // if (sem  ) {
+        //     perror("sem_open failed");
+        //     exit(EXIT_FAILURE);
+        // }
+
+        // Wait until the shared memory is empty
+
+        // Measure the time spent writing to shared memory
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        strcpy(mailbox_ptr->storage.shm_addr, message.text);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+
+        *time_spent += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+
+        // Signal the receiver that the shared memory is full
+
+        // Clean up
+        munmap(mailbox_ptr->storage.shm_addr, SHM_SIZE);
+        close(shm_fd);
+            
+    } 
+    else {
+        fprintf(stderr, "Invalid mailbox flag.\n");
+        return;
+    }
+
+    *time_spent += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
+
+    sem_post(sem_full);
 }
 
-int main(){
-    /*  TODO: 
-        1) Call send(message, &mailbox) according to the flow in slide 4
-        2) Measure the total sending time
-        3) Get the mechanism and the input file from command line arguments
-            • e.g. ./sender 1 input.txt
-                    (1 for Message Passing, 2 for Shared Memory)
-        4) Get the messages to be sent from the input file
-        5) Print information on the console according to the output format
-        6) If the message form the input file is EOF, send an exit message to the receiver.c
-        7) Print the total sending time and terminate the sender.c
-    */
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <mechanism> <input_file>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    int mechanism = atoi(argv[1]);
+    const char *input_file = argv[2];
+    mailbox_t mailbox;
+    message_t message;
+
+    double time_spent_on_communication = 0.0;
+    
+
+    FILE *file = fopen(input_file, "r");
+    if (!file) {
+        perror("fopen failed");
+        exit(EXIT_FAILURE);
+    }
+    
+
+    // Initialize mailbox based on mechanism
+    if (mechanism == 1) {
+        mailbox.flag = 1;
+        // mailbox.storage->msqid = msgget(IPC_PRIVATE, 0666 | IPC_CREAT);
+        // if (mailbox.storage->msqid == -1) {
+        //     perror("msgget failed");
+        //     exit(EXIT_FAILURE);
+        // }
+    }
+    else if (mechanism == 2) {
+        mailbox.flag = 2;
+        
+    } 
+    else {
+        fprintf(stderr, "Invalid mechanism. Use 1 for Message Passing, 2 for Shared Memory.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    
+    sem_empty = sem_open(SEM_EMPTY,O_CREAT, 0777, 1);
+    sem_full = sem_open(SEM_FULL,O_CREAT,0777,0);
+
+    while (fgets(message.text, sizeof(message.text), file)) {
+        message.text[strcspn(message.text, "\n")] = '\0'; // Remove newline
+        send(message, &mailbox, &time_spent_on_communication);
+    }
+
+    // Send exit message to receiver
+    strcpy(message.text, EXIT_MSG);
+    send(message, &mailbox, &time_spent_on_communication);
+
+    fclose(file);
+
+    printf("Total time spent on communication: %.6f seconds\n", time_spent_on_communication);
+    sem_destroy(sem_empty);
+    sem_destroy(sem_full);
+    
+    return 0;
 }
