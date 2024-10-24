@@ -40,8 +40,10 @@ void send(message_t message, mailbox_t* mailbox_ptr, double* time_spent) {
         // Message Passing (Posix)
         if(strcmp(message.text,EXIT_MSG)==0)
             printf(RED "Sender exit!\n" RESET);
-        else
-            printf(BLU_BOLD"Sending Message : %s\n",message.text,RESET);
+        else{
+            printf(BLU_BOLD"Sending Message : %s %s\n",RESET,message.text);
+
+        }
         clock_gettime(CLOCK_MONOTONIC, &start);
         if (msgsnd(msqid, &message, sizeof(message_t), 0) == -1) {
             perror("msgsnd failed");
@@ -55,7 +57,7 @@ void send(message_t message, mailbox_t* mailbox_ptr, double* time_spent) {
         if(strcmp(message.text,EXIT_MSG)==0)
             printf(RED "Sender exit!\n" RESET);
         else
-            printf(BLU_BOLD"Sending Message : %s\n",message.text,RESET);
+             printf(BLU_BOLD"Sending Message : %s %s\n",RESET,message.text);
         clock_gettime(CLOCK_MONOTONIC, &start);
         strcpy(mailbox_ptr->storage.shm_addr, message.text);
         clock_gettime(CLOCK_MONOTONIC, &end);
@@ -148,6 +150,12 @@ int main(int argc, char *argv[]) {
 
     
 
+    // // Send exit message to receiver
+    // strcpy(message.text, EXIT_MSG);
+    // send(message, &mailbox, &time_spent_on_communication);
+    // munmap(mailbox.storage.shm_addr, SHM_SIZE);
+    // close(shm_fd);
+    // Clean up
     fclose(file);
     
 

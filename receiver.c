@@ -49,7 +49,7 @@ void receive(message_t* message_ptr, mailbox_t* mailbox_ptr,double* time_spent) 
         if(strcmp(message_ptr->text,EXIT_MSG)==0)
             printf(RED"End of input file!exit!\n"RESET);
         else
-            printf(BLU_BOLD"Receiving Message : %s\n",message_ptr->text,RESET);
+            printf(BLU_BOLD"Receiving Message : %s %s\n",RESET,message_ptr->text);
         *time_spent += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     } 
     else if (mailbox_ptr->flag == 2) {
@@ -62,7 +62,7 @@ void receive(message_t* message_ptr, mailbox_t* mailbox_ptr,double* time_spent) 
     if(strcmp(message_ptr->text,EXIT_MSG)==0)
         printf(RED"End of input file!exit!\n"RESET);
     else
-        printf(BLU_BOLD"Receiving Message : %s\n",message_ptr->text,RESET);
+        printf(BLU_BOLD"Receiving Message : %s %s\n",RESET,message_ptr->text);
 
     *time_spent += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     
