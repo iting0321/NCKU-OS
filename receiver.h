@@ -28,4 +28,4 @@ typedef struct {
     char text[1024];   // Message content (up to 1024 bytes)
 } message_t;
 
-void receive(message_t* message_ptr, mailbox_t* mailbox_ptr);
+void receive(message_t* message_ptr, mailbox_t* mailbox_ptr,double* time_spent);

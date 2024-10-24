@@ -12,12 +12,16 @@
 #include <time.h>
 #include <unistd.h>
 
+#define KEY_FILE_NAME "keyfile"
 #define SHM_SIZE 1024
 #define SEM_NAME "/sem_example"
 #define EXIT_MSG "EXIT"
 #define SHM_NAME "/posix_shm_example"
 #define SEM_EMPTY "/posix_sem_empty"
 #define SEM_FULL "/posix_sem_full"
+#define BLU_BOLD "\x1b[;34;1m"
+#define RED     "\033[31m" // Red text 
+#define RESET   "\033[0m"  // Reset to default color
 
 sem_t* sem_empty = NULL;
 sem_t* sem_full = NULL;
@@ -28,9 +32,18 @@ void send(message_t message, mailbox_t* mailbox_ptr, double* time_spent) {
     sem_wait(sem_empty);
 
     if (mailbox_ptr->flag == 1) {
-        // Message Passing (System V)
+        int msqid = msgget(mailbox_ptr->storage.msqid, 0666 | IPC_CREAT);
+        if (msqid == -1) {
+            perror("msgget failed");
+            exit(EXIT_FAILURE);
+        }
+        // Message Passing (Posix)
+        if(strcmp(message.text,EXIT_MSG)==0)
+            printf(RED "Sender exit!\n" RESET);
+        else
+            printf(BLU_BOLD"Sending Message : %s\n",message.text,RESET);
         clock_gettime(CLOCK_MONOTONIC, &start);
-        if (msgsnd(mailbox_ptr->storage.msqid, &message, sizeof(message_t), 0) == -1) {
+        if (msgsnd(msqid, &message, sizeof(message_t), 0) == -1) {
             perror("msgsnd failed");
             exit(EXIT_FAILURE);
         }
@@ -39,46 +52,16 @@ void send(message_t message, mailbox_t* mailbox_ptr, double* time_spent) {
     else if (mailbox_ptr->flag == 2) {
         
         // Shared Memory
-        printf("Sending Message : %s\n",message.text);
-        
-        int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0644);
-        if (shm_fd == -1) {
-            perror("shm_open failed");
-            exit(EXIT_FAILURE);
-        }
-        ftruncate(shm_fd, SHM_SIZE);
-
-        // Map shared memory to address space
-        mailbox_ptr->storage.shm_addr = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-        if (mailbox_ptr->storage.shm_addr == MAP_FAILED) {
-            perror("mmap failed");
-            exit(EXIT_FAILURE);
-        }
-
-        // Open semaphores
-        // sem_init(&sem,1,2);
-       
-
-        // if (sem  ) {
-        //     perror("sem_open failed");
-        //     exit(EXIT_FAILURE);
-        // }
-
-        // Wait until the shared memory is empty
-
-        // Measure the time spent writing to shared memory
+        if(strcmp(message.text,EXIT_MSG)==0)
+            printf(RED "Sender exit!\n" RESET);
+        else
+            printf(BLU_BOLD"Sending Message : %s\n",message.text,RESET);
         clock_gettime(CLOCK_MONOTONIC, &start);
         strcpy(mailbox_ptr->storage.shm_addr, message.text);
         clock_gettime(CLOCK_MONOTONIC, &end);
 
         *time_spent += (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-
-        // Signal the receiver that the shared memory is full
-
-        // Clean up
-        munmap(mailbox_ptr->storage.shm_addr, SHM_SIZE);
-        close(shm_fd);
-            
+   
     } 
     else {
         fprintf(stderr, "Invalid mailbox flag.\n");
@@ -100,6 +83,9 @@ int main(int argc, char *argv[]) {
     const char *input_file = argv[2];
     mailbox_t mailbox;
     message_t message;
+    key_t key = ftok(KEY_FILE_NAME, 666);
+    mailbox.storage.msqid = key;
+    int shm_fd =0;
 
     double time_spent_on_communication = 0.0;
     
@@ -109,19 +95,50 @@ int main(int argc, char *argv[]) {
         perror("fopen failed");
         exit(EXIT_FAILURE);
     }
-    
+    printf(BLU_BOLD "Message Passing\n" RESET);
 
     // Initialize mailbox based on mechanism
     if (mechanism == 1) {
         mailbox.flag = 1;
-        // mailbox.storage->msqid = msgget(IPC_PRIVATE, 0666 | IPC_CREAT);
-        // if (mailbox.storage->msqid == -1) {
-        //     perror("msgget failed");
-        //     exit(EXIT_FAILURE);
-        // }
+        sem_empty = sem_open(SEM_EMPTY,O_CREAT, 0777, 1);
+        sem_full = sem_open(SEM_FULL,O_CREAT,0777,0);
+
+        while (fgets(message.text, sizeof(message.text), file)) {
+            message.text[strcspn(message.text, "\n")] = '\0'; // Remove newline
+            send(message, &mailbox, &time_spent_on_communication);
+        }
+        strcpy(message.text, EXIT_MSG);
+        send(message, &mailbox, &time_spent_on_communication);
+        
     }
     else if (mechanism == 2) {
         mailbox.flag = 2;
+        shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0644);
+        if (shm_fd == -1) {
+            perror("shm_open failed");
+            exit(EXIT_FAILURE);
+        }
+        ftruncate(shm_fd, SHM_SIZE);
+
+        // Map shared memory to address space
+        mailbox.storage.shm_addr = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+        if (mailbox.storage.shm_addr == MAP_FAILED) {
+            perror("mmap failed");
+            exit(EXIT_FAILURE);
+        }
+        sem_empty = sem_open(SEM_EMPTY,O_CREAT, 0777, 1);
+        sem_full = sem_open(SEM_FULL,O_CREAT,0777,0);
+        while (fgets(message.text, sizeof(message.text), file)) {
+        message.text[strcspn(message.text, "\n")] = '\0'; // Remove newline
+        send(message, &mailbox, &time_spent_on_communication);
+        }
+        strcpy(message.text, EXIT_MSG);
+        send(message, &mailbox, &time_spent_on_communication);
+        munmap(mailbox.storage.shm_addr, SHM_SIZE);
+        close(shm_fd);
+
+
+        
         
     } 
     else {
@@ -130,23 +147,16 @@ int main(int argc, char *argv[]) {
     }
 
     
-    sem_empty = sem_open(SEM_EMPTY,O_CREAT, 0777, 1);
-    sem_full = sem_open(SEM_FULL,O_CREAT,0777,0);
-
-    while (fgets(message.text, sizeof(message.text), file)) {
-        message.text[strcspn(message.text, "\n")] = '\0'; // Remove newline
-        send(message, &mailbox, &time_spent_on_communication);
-    }
-
-    // Send exit message to receiver
-    strcpy(message.text, EXIT_MSG);
-    send(message, &mailbox, &time_spent_on_communication);
 
     fclose(file);
+    
 
     printf("Total time spent on communication: %.6f seconds\n", time_spent_on_communication);
-    sem_destroy(sem_empty);
-    sem_destroy(sem_full);
-    
+    sem_close(sem_empty);
+    sem_close(sem_full);
+
+ 
+
+
     return 0;
 }

@@ -18,3 +18,4 @@ $(BINARY2): $(SOURCE2) $(patsubst %.c, %.h, $(SOURCE2))
 .PHONY: clean
 clean:
 	rm -f $(BINARY1) $(BINARY2)
+	rm -f /dev/shm/sem.*
