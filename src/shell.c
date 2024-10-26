@@ -22,25 +22,23 @@
 void redirection(struct cmd_node *p){
 	if (p->out_file!=NULL) {
 		// Output redirection
-		int fd = open(p->out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-		if (fd < 0) {
+		p->out = open(p->out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (p->out < 0) {
 			perror("open");
 			exit(EXIT_FAILURE);
 		}
-		dup2(fd, STDOUT_FILENO);
-		close(fd);
-		//p->args[i] = NULL; // Remove redirection from args
+		dup2(p->out, STDOUT_FILENO);
+		close(p->out);
 	} 
-	else if (p->in_file!=NULL) {
+	if (p->in_file!=NULL) {
 		// Input redirection
-		int fd = open(p->in_file, O_RDONLY);
-		if (fd < 0) {
+		p->in = open(p->in_file, O_RDONLY);
+		if (p->in < 0) {
 			perror("open");
 			exit(EXIT_FAILURE);
 		}
-		dup2(fd, STDIN_FILENO);
-		close(fd);
-		//p->args[i] = NULL; // Remove redirection from args
+		dup2(p->in, STDIN_FILENO);
+		close(p->in);
 	}
     
 	
@@ -58,10 +56,8 @@ void redirection(struct cmd_node *p){
  * @return int 
  * Return execution status
  */
-int spawn_proc(struct cmd_node *p)
+int spawn_proc(struct cmd_node *p, int in_fd, int out_fd)
 {	
-	
-	
 	pid_t pid = fork();
 
     if (pid < 0) {
@@ -70,30 +66,47 @@ int spawn_proc(struct cmd_node *p)
     }
 
     if (pid == 0) {
-		if(p->out_file!=NULL || p->in_file!= NULL)
-			redirection(p);
-		const char *str1 = "ls";
-		const char *str2 = "cat";
-        // In the child process, use execvp to execute 'ls'
-		if(strcmp(p->args[0],str1)==0){
-			if (execvp("ls", p->args) < 0) {
-				perror("execvp");
-				exit(EXIT_FAILURE);
-			}
-		}
-		else if(strcmp(p->args[0],str2)==0){
-			if (execvp("cat", p->args) < 0) {
-				perror("execvp");
-				exit(EXIT_FAILURE);
-			}
-		}
-    } 
-	else {
+		if (in_fd != STDIN_FILENO) {
+            dup2(in_fd, STDIN_FILENO);
+            close(in_fd);
+        }
+
+        // If there is an output pipe, redirect stdout to its write end
+        if (out_fd != STDOUT_FILENO) {
+            dup2(out_fd, STDOUT_FILENO);
+            close(out_fd);
+        }
+
+        // Handle file redirection if specified
+        if (p->out_file != NULL || p->in_file != NULL) {
+            redirection(p);
+        }
+
+        // Command execution logic
+        if (strcmp(p->args[0], "ls") == 0) {
+            if (execvp("ls", p->args) < 0) {
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+        } else if (strcmp(p->args[0], "cat") == 0) {
+            if (execvp("cat", p->args) < 0) {
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Handle any other command
+            if (execvp(p->args[0], p->args) < 0) {
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+    } else {
         // Parent process waits for the child to finish
-		//waitpid();
         wait(NULL);
     }
-  	return 1;
+
+    return 1;
 }
 // ===============================================================
 
@@ -109,7 +122,7 @@ int spawn_proc(struct cmd_node *p)
  */
 int fork_cmd_node(struct cmd *cmd)
 {
-	int pipefd[2], prev_fd = -1;
+	int pipefd[2], in_fd = STDIN_FILENO;
     struct cmd_node *current = cmd->head;
     pid_t pid;
 
@@ -121,75 +134,15 @@ int fork_cmd_node(struct cmd *cmd)
                 exit(EXIT_FAILURE);
             }
         }
-        //Fork a new process for the current command
-        pid = fork();
-        if (pid == -1) {
-            perror("fork");
-            exit(EXIT_FAILURE);
+        // Spawn the current process and connect it to the pipeline
+        spawn_proc(current, in_fd, (current->next != NULL) ? pipefd[1] : STDOUT_FILENO);
+		//spawn_proc(current);
+        // Close the write end of the current pipe in the parent process
+        if (current->next != NULL) {
+            close(pipefd[1]);
+            in_fd = pipefd[0];  // The next command will read from the current pipe's read end
         }
 
-        else if (pid == 0) {
-            // Child process
-            // Redirect input if necessary
-            if (current->in_file != NULL) {
-                current->in = open(current->in_file, O_RDONLY);
-                if (current->in < 0) {
-                    perror("open in_file");
-                    exit(EXIT_FAILURE);
-                }
-                dup2(current->in, STDIN_FILENO);  // Redirect stdin to the input file
-                close(current->in);
-            } 
-			else if (prev_fd != -1) {
-                // If there was a previous command, use the read end of the previous pipe
-                dup2(prev_fd, STDIN_FILENO);  // Redirect stdin to the previous pipe's read end
-                close(prev_fd);
-            }
-			//spawn_proc(current);
-
-            //Redirect output if necessary
-            if (current->out_file != NULL) {
-                current->out = open(current->out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                if (current->out < 0) {
-                    perror("open out_file");
-                    exit(EXIT_FAILURE);
-                }
-                dup2(current->out, STDOUT_FILENO);  // Redirect stdout to the output file
-                close(current->out);
-            } 
-			else if (current->next != NULL) {
-                // If there is a next command, use the write end of the current pipe
-                dup2(pipefd[1], STDOUT_FILENO);  // Redirect stdout to the pipe's write end
-                close(pipefd[0]);  // Close the unused read end of the pipe
-                close(pipefd[1]);  // Close the original write end of the pipe
-            }
-
-            //Execute the command
-            execvp(current->args[0], current->args);
-            //If execvp fails
-            perror("execvp");
-            exit(EXIT_FAILURE);
-			spawn_proc(current);
-        } 
-		else {
-            // Parent process
-
-            // Close the previous read end if it's open
-            if (prev_fd != -1) {
-                close(prev_fd);
-            }
-
-            // Close the current pipe's write end in the parent
-            if (current->next != NULL) {
-                close(pipefd[1]);
-                prev_fd = pipefd[0];  // Set the read end of the current pipe for the next command
-            }
-
-            // Wait for the child process to finish
-            wait(NULL);
-        }
-
-        // Move to the next command
         current = current->next;
     }
 }
@@ -252,7 +205,8 @@ void shell()
 			}
 			else{
 				//external command
-				status = spawn_proc(cmd->head);
+				status = spawn_proc(cmd->head,cmd->head->in,cmd->head->out);
+				//status = spawn_proc(cmd->head);
 			}
 		}
 		// There are multiple commands ( | )
