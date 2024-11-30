@@ -27,7 +27,7 @@ static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len
                     current->pid,              // Process ID
                     current->tgid,             // Thread Group ID
                     current->prio,             // Priority
-                    current->__state);           // State
+                    current->state);           // State
 
     // Copy data to user space
     if (*offset > 0 || buffer_len < len) {
