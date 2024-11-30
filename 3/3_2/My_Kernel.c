@@ -9,17 +9,49 @@
 #define BUFSIZE  1024
 char buf[BUFSIZE]; //kernel buffer
 
-static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset){
-    /*Your code here*/
+static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    if (buffer_len > BUFSIZE - 1) {
+        pr_err("Input too large\n");
+        return -EINVAL;
+    }
 
-    /****************/
+    if (copy_from_user(buf, ubuf, buffer_len)) {
+        pr_err("Failed to copy data from user space\n");
+        return -EFAULT;
+    }
+
+    buf[buffer_len] = '\0'; // Null-terminate the string
+    pr_info("Received from user: %s\n", buf);
+    return buffer_len;
 }
 
 
-static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset){
-    /*Your code here*/
+static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    int len = 0;
 
-    /****************/
+    // Fill the buffer with the thread information
+    len += snprintf(buf, BUFSIZE,
+                    "Process ID: %d "
+                    "Thread Group ID: %d "
+                    "Priority: %d "
+                    "State: %ld\n",
+                    current->pid,              // Process ID
+                    current->tgid,             // Thread Group ID
+                    current->prio,             // Priority
+                    current->state);           // State
+
+    // Copy data to user space
+    if (*offset > 0 || buffer_len < len) {
+        return 0; // End of file or buffer too small
+    }
+
+    if (copy_to_user(ubuf, buf, len)) {
+        pr_err("Failed to copy data to user space\n");
+        return -EFAULT;
+    }
+
+    *offset = len; // Update the offset
+    return len;    // Return the number of bytes read
 }
 
 static struct proc_ops Myops = {
