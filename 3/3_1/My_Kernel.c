@@ -16,27 +16,32 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
 
 
 static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    struct task_struct *thread;
     int len = 0;
 
-    // Only write data on the first read
+    // Check if the offset is greater than zero (data has already been read)
     if (*offset > 0) {
         return 0; // EOF
     }
 
-    // Fill the kernel buffer using sprintf
-    len += sprintf(buf + len, "Process ID: %d\n", current->pid);
-    len += sprintf(buf + len, "Thread ID: %d\n", current->tgid);
-    len += sprintf(buf + len, "Priority: %d\n", current->prio);
-    len += sprintf(buf + len, "State: %ld\n", current->__state);
-
-    // Check if the user buffer is large enough
-    if (buffer_len < len) {
-        return -EINVAL; // Invalid argument
+    // Iterate through all threads of the current process
+    for_each_thread(current, thread) {
+        len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
+                       thread->pid, thread->prio, thread->__state);
+        // Check if the buffer length is exceeded
+        if (len >= BUFSIZE) {
+            break; // Stop if buffer is full
+        }
     }
 
-    // Copy data to user buffer
+    // Ensure we have enough space in the user buffer
+    if (buffer_len < len) {
+        return -EINVAL; // Error: Invalid argument
+    }
+
+    // Copy the data to the user buffer
     if (copy_to_user(ubuf, buf, len)) {
-        return -EFAULT; // Bad address
+        return -EFAULT; // Error: Bad address
     }
 
     // Update the offset to indicate data has been read
