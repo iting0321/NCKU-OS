@@ -79,6 +79,7 @@ void *thread1(void *arg){
         perror("Error opening proc file");
         return NULL;
     }
+    
     fputs("Helloworld!\n", proc_file);
     fclose(proc_file);
     /****************/ 

@@ -15,6 +15,8 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
         pr_err("Input too large\n");
         return -EINVAL;
     }
+    if (procfs_buffer_size >= BUFSIZE) 
+        procfs_buffer_size = BUFSIZE - 1; 
 
     if (copy_from_user(buf, ubuf, buffer_len)) {
         pr_err("Failed to copy data from user space\n");
@@ -22,7 +24,7 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
     }
 
     buf[procfs_buffer_size] = '\0'; // Null-terminate the string
-    *offset = procfs_buffer_size ; 
+    *offset += procfs_buffer_size ; 
     pr_info("Received from user: %s\n", buf);
     return procfs_buffer_size  ;
 }
