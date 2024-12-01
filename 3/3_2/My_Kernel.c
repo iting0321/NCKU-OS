@@ -27,32 +27,40 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
 
 
 static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    struct task_struct *thread;
     int len = 0;
 
-    // Fill the buffer with the thread information
-    len += snprintf(buf, BUFSIZE,
-                    "Process ID: %d "
-                    "Thread Group ID: %d "
-                    "Priority: %d "
-                    "State: %ld\n",
-                    current->pid,              // Process ID
-                    current->tgid,             // Thread Group ID
-                    current->prio,             // Priority
-                    current->state);           // State
-
-    // Copy data to user space
-    if (*offset > 0 || buffer_len < len) {
-        return 0; // End of file or buffer too small
+    // Check if the offset is greater than zero (data has already been read)
+    if (*offset > 0) {
+        return 0; // EOF
     }
 
+    // Iterate through all threads of the current process
+    for_each_thread(current, thread) {
+        len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
+                       thread->pid, thread->prio, thread->__state);
+        // Check if the buffer length is exceeded
+        if (len >= BUFSIZE) {
+            break; // Stop if buffer is full
+        }
+    }
+
+    // Ensure we have enough space in the user buffer
+    if (buffer_len < len) {
+        return -EINVAL; // Error: Invalid argument
+    }
+
+    // Copy the data to the user buffer
     if (copy_to_user(ubuf, buf, len)) {
-        pr_err("Failed to copy data to user space\n");
-        return -EFAULT;
+        return -EFAULT; // Error: Bad address
     }
 
-    *offset = len; // Update the offset
-    return len;    // Return the number of bytes read
+    // Update the offset to indicate data has been read
+    *offset += len;
+
+    return len; // Return the number of bytes read
 }
+
 
 static struct proc_ops Myops = {
     .proc_read = Myread,

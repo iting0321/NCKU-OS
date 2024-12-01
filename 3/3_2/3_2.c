@@ -73,7 +73,14 @@ void *thread1(void *arg){
 
     /*YOUR CODE HERE*/
     /* Hint: Write data into proc file.*/
-
+    // Write to the proc file
+    FILE *proc_file = fopen("/proc/Mythread_info", "w");
+    if (proc_file == NULL) {
+        perror("Error opening proc file");
+        return NULL;
+    }
+    fputs("hello from thread1\n", proc_file);
+    fclose(proc_file);
     /****************/ 
 
     char buffer[50]; 
@@ -97,7 +104,13 @@ void *thread2(void *arg){
     
     /*YOUR CODE HERE*/
     /* Hint: Write data into proc file.*/
-
+    FILE *proc_file = fopen("/proc/Mythread_info", "w");
+    if (proc_file == NULL) {
+        perror("Error opening proc file");
+        return NULL;
+    }
+    fputs("hello from thread2\n", proc_file);
+    fclose(proc_file);
     /****************/   
 
     char buffer[50]; 
