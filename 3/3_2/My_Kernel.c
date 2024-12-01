@@ -36,17 +36,19 @@ static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len
     if (*offset > 0) {
         return 0; // EOF
     }
+    char s[13] = "HelloWorld!\n"; 
+    len = sizeof(s);
 
-    // Iterate through all threads of the current process
-    for_each_thread(current, thread) {
-        if(current->pid==thread->pid) continue;
-        len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
-                       thread->pid, thread->prio, thread->__state);
-        // Check if the buffer length is exceeded
-        if (len >= BUFSIZE) {
-            break; // Stop if buffer is full
-        }
-    }
+    // // Iterate through all threads of the current process
+    // for_each_thread(current, thread) {
+    //     if(current->pid==thread->pid) continue;
+    //     len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
+    //                    thread->pid, thread->prio, thread->__state);
+    //     // Check if the buffer length is exceeded
+    //     if (len >= BUFSIZE) {
+    //         break; // Stop if buffer is full
+    //     }
+    // }
 
     // Ensure we have enough space in the user buffer
     if (buffer_len < len) {
