@@ -18,31 +18,32 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
 static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
     int len = 0;
 
-    // Fill the buffer with the thread information
-    len += snprintf(buf, BUFSIZE,
-                    "Process ID: %d "
-                    "Thread Group ID: %d "
-                    "Priority: %d "
-                    "State: %ld\n",
-                    current->pid,              // Process ID
-                    thread->pid,             // Thread Group ID
-                    thread->prio,             // Priority
-                    thread->__state);           // State
-
-    // Copy data to user space
-    if (*offset > 0 || buffer_len < len) {
-        return 0; // End of file or buffer too small
+    // Only write data on the first read
+    if (*offset > 0) {
+        return 0; // EOF
     }
 
+    // Fill the kernel buffer using sprintf
+    len += sprintf(buf + len, "Process ID: %d\n", current->pid);
+    len += sprintf(buf + len, "Thread ID: %d\n", current->tgid);
+    len += sprintf(buf + len, "Priority: %d\n", current->prio);
+    len += sprintf(buf + len, "State: %ld\n", current->__state);
+
+    // Check if the user buffer is large enough
+    if (buffer_len < len) {
+        return -EINVAL; // Invalid argument
+    }
+
+    // Copy data to user buffer
     if (copy_to_user(ubuf, buf, len)) {
-        pr_err("Failed to copy data to user space\n");
-        return -EFAULT;
+        return -EFAULT; // Bad address
     }
 
-    *offset = len; // Update the offset
-    return len;    // Return the number of bytes read
-}
+    // Update the offset to indicate data has been read
+    *offset += len;
 
+    return len; // Return the number of bytes read
+}
 
 static struct proc_ops Myops = {
     .proc_read = Myread,
