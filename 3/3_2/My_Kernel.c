@@ -8,8 +8,9 @@
 #define procfs_name "Mythread_info"
 #define BUFSIZE  1024
 char buf[BUFSIZE]; //kernel buffer
-
+static unsigned long procfs_buffer_size = 0; 
 static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    procfs_buffer_size = buffer_len; 
     if (buffer_len > BUFSIZE - 1) {
         pr_err("Input too large\n");
         return -EINVAL;
@@ -20,9 +21,10 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
         return -EFAULT;
     }
 
-    buf[buffer_len] = '\0'; // Null-terminate the string
+    buf[procfs_buffer_size] = '\0'; // Null-terminate the string
+    *offset = procfs_buffer_size ; 
     pr_info("Received from user: %s\n", buf);
-    return buffer_len;
+    return procfs_buffer_size  ;
 }
 
 
@@ -37,6 +39,7 @@ static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len
 
     // Iterate through all threads of the current process
     for_each_thread(current, thread) {
+        if(current->pid==thread->pid) continue;
         len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
                        thread->pid, thread->prio, thread->__state);
         // Check if the buffer length is exceeded

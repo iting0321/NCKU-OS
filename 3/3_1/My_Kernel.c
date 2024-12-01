@@ -26,6 +26,7 @@ static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len
 
     // Iterate through all threads of the current process
     for_each_thread(current, thread) {
+        if(current->pid==thread->pid) continue;
         len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
                        thread->pid, thread->prio, thread->__state);
         // Check if the buffer length is exceeded
