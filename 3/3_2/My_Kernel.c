@@ -8,49 +8,44 @@
 #define procfs_name "Mythread_info"
 #define BUFSIZE  1024
 char buf[BUFSIZE]; //kernel buffer
-static unsigned long procfs_buffer_size = 0; 
 static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset) {
-    procfs_buffer_size = buffer_len; 
-    if (buffer_len > BUFSIZE - 1) {
-        pr_err("Input too large\n");
-        return -EINVAL;
-    }
-    if (procfs_buffer_size >= BUFSIZE) 
-        procfs_buffer_size = BUFSIZE - 1; 
-
-    if (copy_from_user(buf, ubuf, buffer_len)) {
+    struct my_device_data *my_data = (struct my_device_data *) file->private_data;
+    ssize_t len = min(my_data->size - *offset, buffer_len);
+    if(len <= 0) return 0;
+   
+    if (copy_from_user(my_data->buffer+ *offset, ubuf, len)) {
         pr_err("Failed to copy data from user space\n");
         return -EFAULT;
     }
 
-    buf[procfs_buffer_size] = '\0'; // Null-terminate the string
-    *offset += procfs_buffer_size ; 
+    *offset += to_copy ; 
     pr_info("Received from user: %s\n", buf);
-    return procfs_buffer_size  ;
+    return to_copy;
 }
 
 
 static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
+    
     struct task_struct *thread;
-    int len = 0;
+    struct my_device_data *my_data = (struct my_device_data *) file->private_data;
+    ssize_t len = min(my_data->size - *offset, buffer_len);
 
     // Check if the offset is greater than zero (data has already been read)
     if (*offset > 0) {
         return 0; // EOF
     }
-    char s[13] = "HelloWorld!\n"; 
-    len = sizeof(s);
-
-    // // Iterate through all threads of the current process
-    // for_each_thread(current, thread) {
-    //     if(current->pid==thread->pid) continue;
-    //     len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
-    //                    thread->pid, thread->prio, thread->__state);
-    //     // Check if the buffer length is exceeded
-    //     if (len >= BUFSIZE) {
-    //         break; // Stop if buffer is full
-    //     }
-    // }
+    if(len<=0) return 0;
+    
+    // Iterate through all threads of the current process
+    for_each_thread(current, thread) {
+        if(current->pid==thread->pid) continue;
+        len += sprintf(buf + len, "PID: %d, TID: %d, time: %d\n",current->pid,
+                       thread->pid, thread->utime);
+        // Check if the buffer length is exceeded
+        if (len >= BUFSIZE) {
+            break; // Stop if buffer is full
+        }
+    }
 
     // Ensure we have enough space in the user buffer
     if (buffer_len < len) {

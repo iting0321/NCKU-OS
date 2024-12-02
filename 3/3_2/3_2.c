@@ -74,14 +74,13 @@ void *thread1(void *arg){
     /*YOUR CODE HERE*/
     /* Hint: Write data into proc file.*/
     // Write to the proc file
-    FILE *proc_file = fopen("/proc/Mythread_info", "w");
-    if (proc_file == NULL) {
+    int fd = open("/dev/my_device", O_RDONLY);
+    if (fd < 0) {
         perror("Error opening proc file");
         return NULL;
     }
-    
-    fputs("Helloworld!\n", proc_file);
-    fclose(proc_file);
+    fputs("Thread 1 says hello!\n", fd);
+    fclose(fp);
     /****************/ 
 
     char buffer[50]; 
@@ -105,13 +104,13 @@ void *thread2(void *arg){
     
     /*YOUR CODE HERE*/
     /* Hint: Write data into proc file.*/
-    FILE *proc_file = fopen("/proc/Mythread_info", "w");
-    if (proc_file == NULL) {
+   int fd = open("/dev/my_device", O_RDONLY);
+    if (fd < 0) {
         perror("Error opening proc file");
         return NULL;
     }
-    fputs("Helloworld!\n\n", proc_file);
-    fclose(proc_file);
+    fputs("Thread 2 saya hello\n", fd);
+    fclose(fp);
     /****************/   
 
     char buffer[50]; 
@@ -126,7 +125,8 @@ int main(){
     x = malloc(sizeof(int*)*matrix_row_x);
     for(int i=0; i<matrix_row_x; i++){
         x[i] = malloc(sizeof(int)*matrix_col_x);
-    }
+    }    fptr4 = fopen("/proc/Mythread_info", "r");
+
     y = malloc(sizeof(int*)*matrix_row_y);
     for(int i=0; i<matrix_row_y; i++){
         y[i] = malloc(sizeof(int)*matrix_col_y);
@@ -138,7 +138,6 @@ int main(){
     fptr1 = fopen("m1.txt", "r");
     fptr2 = fopen("m2.txt", "r");
     fptr3 = fopen("3_2.txt", "a");
-    fptr4 = fopen("/proc/Mythread_info", "r");
     fptr5 = fopen("/proc/Mythread_info", "r");
 
     pthread_t t1, t2;
