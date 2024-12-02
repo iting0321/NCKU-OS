@@ -80,7 +80,7 @@ void *thread1(void *arg){
         return NULL;
     }
     
-    fputs("Helloworld!\n", proc_file);
+    fputs("Thread 1 says hello!\n", proc_file);
     fclose(proc_file);
     /****************/ 
 
@@ -110,7 +110,7 @@ void *thread2(void *arg){
         perror("Error opening proc file");
         return NULL;
     }
-    fputs("Helloworld!\n\n", proc_file);
+    fputs("Thread 2 says hello\n", proc_file);
     fclose(proc_file);
     /****************/   
 

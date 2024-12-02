@@ -1,0 +1,1 @@
+savedcmd_/home/iting/Desktop/NCKU-OS-1/3/3_2/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/iting/Desktop/NCKU-OS-1/3/3_2/Module.symvers -T /home/iting/Desktop/NCKU-OS-1/3/3_2/modules.order -i Module.symvers -e 

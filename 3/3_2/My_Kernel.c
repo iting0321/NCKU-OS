@@ -6,10 +6,13 @@
 #include <asm/current.h>
 
 #define procfs_name "Mythread_info"
-#define BUFSIZE  1024
+#define BUFSIZE  2048
 char buf[BUFSIZE]; //kernel buffer
-static unsigned long procfs_buffer_size = 0; 
-static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset) {
+
+static unsigned int procfs_buffer_size = 0;
+static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buffer_len, loff_t *offset) {   
+
+    pr_info("mywrite start\n");
     procfs_buffer_size = buffer_len; 
     if (buffer_len > BUFSIZE - 1) {
         pr_err("Input too large\n");
@@ -22,9 +25,12 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
         pr_err("Failed to copy data from user space\n");
         return -EFAULT;
     }
-
-    buf[procfs_buffer_size] = '\0'; // Null-terminate the string
+    pr_info("buffer_len %zu\n",buffer_len);
+    buf[25] = '\0'; // Null-terminate the string
+    pr_info("buf : %s\n",buf);
+    //return 0;
     *offset += procfs_buffer_size ; 
+    //return 0;
     pr_info("Received from user: %s\n", buf);
     return procfs_buffer_size  ;
 }
@@ -32,33 +38,26 @@ static ssize_t Mywrite(struct file *fileptr, const char __user *ubuf, size_t buf
 
 static ssize_t Myread(struct file *fileptr, char __user *ubuf, size_t buffer_len, loff_t *offset) {
     struct task_struct *thread;
-    int len = 0;
-
+    ssize_t len = procfs_buffer_size; 
+    
+    pr_info("buffer size %zu\n",buffer_len);
     // Check if the offset is greater than zero (data has already been read)
     if (*offset > 0) {
         return 0; // EOF
     }
-    char s[13] = "HelloWorld!\n"; 
-    len = sizeof(s);
-
-    // // Iterate through all threads of the current process
-    // for_each_thread(current, thread) {
-    //     if(current->pid==thread->pid) continue;
-    //     len += sprintf(buf + len, "PID: %d, TID: %d, Priority: %d, State: %ld\n",current->pid,
-    //                    thread->pid, thread->prio, thread->__state);
-    //     // Check if the buffer length is exceeded
-    //     if (len >= BUFSIZE) {
-    //         break; // Stop if buffer is full
-    //     }
-    // }
+    
+    len += sprintf(buf + len, "PID: %d, TID: %d, time: %d\n",current->tgid,
+                        current->pid, current->utime);
 
     // Ensure we have enough space in the user buffer
-    if (buffer_len < len) {
+    if (!ubuf || buffer_len < len) {
+        pr_err("Invalid user buf\n");
         return -EINVAL; // Error: Invalid argument
     }
 
     // Copy the data to the user buffer
     if (copy_to_user(ubuf, buf, len)) {
+	pr_err("fail to copy\n");
         return -EFAULT; // Error: Bad address
     }
 
@@ -75,7 +74,7 @@ static struct proc_ops Myops = {
 };
 
 static int My_Kernel_Init(void){
-    proc_create(procfs_name, 0644, NULL, &Myops);   
+    proc_create(procfs_name, 0777, NULL, &Myops);   
     pr_info("My kernel says Hi");
     return 0;
 }

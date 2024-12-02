@@ -7,7 +7,7 @@ PWD := $(shell pwd)
 CC := gcc
 
 all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules EXTRA_CFLAGS="-g"
 
 clean:
 	@rm -f *.o *.ko *.mod.* *.symvers *.order *.mod.cmd *.mod .*.mod.* .*.*.cmd
