@@ -258,48 +258,46 @@ static int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *
  *   - A negative error code from osfs_new_inode on failure.
  */
 static int osfs_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl)
-{   
-    // Step1: Parse the parent directory passed by the VFS 
+{
     struct osfs_inode *parent_inode = dir->i_private;
-    struct osfs_inode *osfs_inode;
     struct inode *inode;
     int ret;
 
-    // Step2: Validate the file name length
-
-
-    // Step3: Allocate and initialize VFS & osfs inode
-    
-
-    osfs_inode = inode->i_private;
-    if (!osfs_inode) {
-        pr_err("osfs_create: Failed to get osfs_inode for inode %lu\n", inode->i_ino);
-        iput(inode);
-        return -EIO;
+    // Step 2: Validate the file name length
+    if (dentry->d_name.len > MAX_FILENAME_LEN) {
+        pr_err("osfs_create: File name is too long\n");
+        return -ENAMETOOLONG;
     }
-    // init osfs_inode attribute
-    osfs_inode->i_block = 0; 
-    osfs_inode->i_size = 0;
-    osfs_inode->i_blocks = 0;
 
-    // Step4: Parent directory entry update for the new file
+    // Step 3: Allocate and initialize a VFS & osfs inode
+    inode = osfs_new_inode(dir, mode);
+    if (IS_ERR(inode)) {
+        pr_err("osfs_create: Failed to allocate new inode\n");
+        return PTR_ERR(inode);
+    }
 
+    // Step 4: Parent directory entry update for the new file
+    ret = osfs_add_dir_entry(dir, inode->i_ino, dentry->d_name.name, dentry->d_name.len);
     if (ret) {
         pr_err("osfs_create: Failed to add directory entry\n");
-        iput(inode);
+        iput(inode); // Clean up if adding entry fails
         return ret;
     }
 
-    // Step 5: Update the parent directory's metadata 
-    
-    
+    // Step 5: Update the parent directory's metadata
+    parent_inode->i_size += sizeof(struct osfs_dir_entry);
+    parent_inode->__i_mtime = current_time(dir);
+    mark_inode_dirty(dir);
+
     // Step 6: Bind the inode to the VFS dentry
+    d_instantiate(dentry, inode);
 
     pr_info("osfs_create: File '%.*s' created with inode %lu\n",
             (int)dentry->d_name.len, dentry->d_name.name, inode->i_ino);
 
     return 0;
 }
+
 
 
 
