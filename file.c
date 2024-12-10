@@ -130,6 +130,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
             return -EFAULT;
         }
 
+        
         // Update metadata and counters
         *ppos += to_write;
         bytes_written += to_write;

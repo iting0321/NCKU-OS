@@ -64,36 +64,48 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
-    struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
-    int i, ext;
+    struct osfs_dir_entry *dir_entries;
+    int dir_entry_count, i, ext;
 
     if (ctx->pos == 0) {
-        if (!dir_emit_dots(filp, ctx))
+        if (!dir_emit_dots(filp, ctx)) {
+            pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
             return 0;
+        }
     }
 
-    // Traverse all extents of the directory
+    // Traverse directory extents to find entries
     for (ext = 0; ext < osfs_inode->num_extents; ext++) {
         dir_data_block = sb_info->data_blocks + osfs_inode->extents[ext].start_block * BLOCK_SIZE;
-        int dir_entry_count = osfs_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
+        dir_entry_count = (osfs_inode->extents[ext].length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
-        for (i = ctx->pos - 2; i < dir_entry_count; i++) {
+        for (i = 0; i < dir_entry_count; i++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
-            unsigned int type = DT_UNKNOWN;
 
-            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
-                pr_err("osfs_iterate: dir_emit failed for entry '%s'\n", entry->filename);
-                return -EINVAL;
+            // Skip invalid or empty entries
+            if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
+                pr_warn("osfs_iterate: Skipping invalid entry (filename='%s', inode_no=%u)\n",
+                        entry->filename, entry->inode_no);
+                continue;
             }
 
+            // Emit the directory entry
+            unsigned int type = DT_UNKNOWN; // Use DT_UNKNOWN if file type is unknown
+            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
+                pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
+                return 0; // Stop iteration gracefully
+            }
+
+            // Update directory position
             ctx->pos++;
         }
     }
 
     return 0;
 }
+
 
 
 /**
