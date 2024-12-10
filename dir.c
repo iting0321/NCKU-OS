@@ -193,17 +193,17 @@ static int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *
     struct osfs_inode *parent_inode = dir->i_private;
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
-    int i, ext;
+    int dir_entry_count, i, ext;
 
     // Traverse all extents of the directory
     for (ext = 0; ext < parent_inode->num_extents; ext++) {
         dir_data_block = sb_info->data_blocks + parent_inode->extents[ext].start_block * BLOCK_SIZE;
-        int dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
+        dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
-        // Check if space is available and add the entry
+        // Search for an empty slot
         for (i = 0; i < dir_entry_count; i++) {
-            if (dir_entries[i].inode_no == 0) { // Empty slot
+            if (dir_entries[i].inode_no == 0) { // Empty slot found
                 strncpy(dir_entries[i].filename, name, name_len);
                 dir_entries[i].filename[name_len] = '\0';
                 dir_entries[i].inode_no = inode_no;
@@ -213,10 +213,36 @@ static int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *
         }
     }
 
-    // No space available
+    // No free slots found, try allocating a new extent
+    if (parent_inode->num_extents < MAX_EXTENTS) {
+        uint32_t new_start_block;
+        int ret = osfs_alloc_extent(sb_info, &new_start_block, 1); // Allocate 1 new block for the extent
+        if (ret) {
+            pr_err("osfs_add_dir_entry: Failed to allocate new extent for directory\n");
+            return ret;
+        }
+
+        // Initialize the new extent
+        parent_inode->extents[parent_inode->num_extents].start_block = new_start_block;
+        parent_inode->extents[parent_inode->num_extents].length = 1;
+        parent_inode->num_extents++;
+
+        // Add the entry in the new extent
+        dir_data_block = sb_info->data_blocks + new_start_block * BLOCK_SIZE;
+        dir_entries = (struct osfs_dir_entry *)dir_data_block;
+        memset(dir_entries, 0, BLOCK_SIZE); // Clear the newly allocated block
+        strncpy(dir_entries[0].filename, name, name_len);
+        dir_entries[0].filename[name_len] = '\0';
+        dir_entries[0].inode_no = inode_no;
+        parent_inode->i_size += sizeof(struct osfs_dir_entry);
+        return 0;
+    }
+
+    // No space available even after trying to allocate new extents
     pr_err("osfs_add_dir_entry: No space available in parent directory\n");
     return -ENOSPC;
 }
+
 
 
 /**
