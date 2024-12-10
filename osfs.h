@@ -16,6 +16,7 @@
 #define DATA_BLOCK_COUNT 20    // Assume there are 20 data blocks
 #define MAX_FILENAME_LEN 255
 #define MAX_DIR_ENTRIES (BLOCK_SIZE / sizeof(struct osfs_dir_entry))
+#define INVALID_BLOCK (-1)
 
 #define BITMAP_SIZE(bits) (((bits) + BITS_PER_LONG - 1) / BITS_PER_LONG)
 
@@ -86,6 +87,7 @@ void osfs_destroy_inode(struct inode *inode);
 int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint32_t length);
 uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length);
 void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
+void set_block_bitmap(struct osfs_sb_info *sb_info, uint32_t block_no);
 // External Operations Structures
 
 extern const struct inode_operations osfs_file_inode_operations;

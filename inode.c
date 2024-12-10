@@ -45,7 +45,7 @@ int osfs_get_free_inode(struct osfs_sb_info *sb_info)
     return -ENOSPC;
 }
 uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length) {
-    for (uint32_t i = 0; i < sb_info->total_blocks - length; i++) {
+    for (uint32_t i = 0; i < sb_info->data_blocks - length; i++) {
         if (is_block_range_free(sb_info, i, length))
             return i;
     }
@@ -141,6 +141,11 @@ void osfs_free_data_block(struct osfs_sb_info *sb_info, uint32_t block_no)
     clear_bit(block_no, sb_info->block_bitmap);
     sb_info->nr_free_blocks++;
 }
+void set_block_bitmap(struct osfs_sb_info *sb_info, uint32_t block_no)
+{
+    set_bit(block_no, sb_info->block_bitmap);  // Set the bit corresponding to the block number in the block bitmap
+}
+
 void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length) {
     for (uint32_t i = start_block; i < start_block + length; i++) {
         set_block_bitmap(sb_info, i);
