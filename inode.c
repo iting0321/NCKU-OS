@@ -44,7 +44,13 @@ int osfs_get_free_inode(struct osfs_sb_info *sb_info)
     pr_err("osfs_get_free_inode: No free inode available\n");
     return -ENOSPC;
 }
-
+uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length) {
+    for (uint32_t i = 0; i < sb_info->total_blocks - length; i++) {
+        if (is_block_range_free(sb_info, i, length))
+            return i;
+    }
+    return INVALID_BLOCK;
+}
 /**
  * Function: osfs_iget
  * Description: Creates or retrieves a VFS inode from a given inode number.
@@ -120,9 +126,24 @@ int osfs_alloc_data_block(struct osfs_sb_info *sb_info, uint32_t *block_no)
     pr_err("osfs_alloc_data_block: No free data block available\n");
     return -ENOSPC;
 }
+int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint32_t length) {
+    uint32_t free_block = osfs_find_free_blocks(sb_info, length); // Find a range of free blocks
+    if (free_block == INVALID_BLOCK)
+        return -ENOSPC; // No space available
+
+    osfs_mark_blocks_used(sb_info, free_block, length); // Mark the blocks as used
+    *start_block = free_block;
+    return 0;
+}
 
 void osfs_free_data_block(struct osfs_sb_info *sb_info, uint32_t block_no)
 {
     clear_bit(block_no, sb_info->block_bitmap);
     sb_info->nr_free_blocks++;
 }
+void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length) {
+    for (uint32_t i = start_block; i < start_block + length; i++) {
+        set_block_bitmap(sb_info, i);
+    }
+}
+

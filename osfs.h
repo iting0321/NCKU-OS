@@ -22,6 +22,7 @@
 // Calculate the size of the bitmap (in units of unsigned long)
 #define INODE_BITMAP_SIZE BITMAP_SIZE(INODE_COUNT)
 #define BLOCK_BITMAP_SIZE BITMAP_SIZE(DATA_BLOCK_COUNT)
+#define MAX_EXTENTS 4 // Max number of extents per file (adjust as needed)
 
 #define ROOT_INODE 1            // Define the root inode as 1
 
@@ -50,7 +51,10 @@ struct osfs_dir_entry {
     char filename[MAX_FILENAME_LEN]; // File name
     uint32_t inode_no;               // Corresponding inode number
 };
-
+struct osfs_extent {
+    uint32_t start_block; // Start block of the extent
+    uint32_t length;      // Number of contiguous blocks
+};
 /**
  * Struct: osfs_inode
  * Description: Filesystem-specific inode structure.
@@ -67,6 +71,8 @@ struct osfs_inode {
     struct timespec64 __i_mtime;        // Last modification time
     struct timespec64 __i_ctime;        // Creation time
     uint32_t i_block;                   // Simplified handling, single data block pointer
+    struct osfs_extent extents[MAX_EXTENTS]; // Array of extents
+    uint32_t num_extents;                   // Number of used extents
 };
 
 struct inode *osfs_iget(struct super_block *sb, unsigned long ino);
@@ -77,6 +83,9 @@ int osfs_fill_super(struct super_block *sb, void *data, int silent);
 struct inode *osfs_new_inode(const struct inode *dir, umode_t mode);
 void osfs_free_data_block(struct osfs_sb_info *sb_info, uint32_t block_no);
 void osfs_destroy_inode(struct inode *inode);
+int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint32_t length);
+uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length);
+void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
 // External Operations Structures
 
 extern const struct inode_operations osfs_file_inode_operations;

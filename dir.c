@@ -18,37 +18,35 @@ static struct dentry *osfs_lookup(struct inode *dir, struct dentry *dentry, unsi
 {
     struct osfs_sb_info *sb_info = dir->i_sb->s_fs_info;
     struct osfs_inode *parent_inode = dir->i_private;
-    void *dir_data_block;
     struct osfs_dir_entry *dir_entries;
-    int dir_entry_count;
-    int i;
     struct inode *inode = NULL;
+    void *dir_data_block;
+    int i, ext;
 
     pr_info("osfs_lookup: Looking up '%.*s' in inode %lu\n",
             (int)dentry->d_name.len, dentry->d_name.name, dir->i_ino);
 
-    // Read the parent directory's data block
-    dir_data_block = sb_info->data_blocks + parent_inode->i_block * BLOCK_SIZE;
+    // Traverse all extents of the directory
+    for (ext = 0; ext < parent_inode->num_extents; ext++) {
+        dir_data_block = sb_info->data_blocks + parent_inode->extents[ext].start_block * BLOCK_SIZE;
+        int dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
+        dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
-    // Calculate the number of directory entries
-    dir_entry_count = parent_inode->i_size / sizeof(struct osfs_dir_entry);
-    dir_entries = (struct osfs_dir_entry *)dir_data_block;
-
-    // Traverse the directory entries to find a matching filename
-    for (i = 0; i < dir_entry_count; i++) {
-        if (strlen(dir_entries[i].filename) == dentry->d_name.len &&
-            strncmp(dir_entries[i].filename, dentry->d_name.name, dentry->d_name.len) == 0) {
-            // File found, get inode
-            inode = osfs_iget(dir->i_sb, dir_entries[i].inode_no);
-            if (IS_ERR(inode)) {
-                pr_err("osfs_lookup: Error getting inode %u\n", dir_entries[i].inode_no);
-                return ERR_CAST(inode);
+        // Search for the file within this extent
+        for (i = 0; i < dir_entry_count; i++) {
+            if (strlen(dir_entries[i].filename) == dentry->d_name.len &&
+                strncmp(dir_entries[i].filename, dentry->d_name.name, dentry->d_name.len) == 0) {
+                inode = osfs_iget(dir->i_sb, dir_entries[i].inode_no);
+                if (IS_ERR(inode)) {
+                    pr_err("osfs_lookup: Error getting inode %u\n", dir_entries[i].inode_no);
+                    return ERR_CAST(inode);
+                }
+                return d_splice_alias(inode, dentry);
             }
-            return d_splice_alias(inode, dentry);
         }
     }
 
-    return NULL;
+    return NULL; // File not found
 }
 
 /**
@@ -66,37 +64,37 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
-    void *dir_data_block;
     struct osfs_dir_entry *dir_entries;
-    int dir_entry_count;
-    int i;
+    void *dir_data_block;
+    int i, ext;
 
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx))
             return 0;
     }
 
-    dir_data_block = sb_info->data_blocks + osfs_inode->i_block * BLOCK_SIZE;
-    dir_entry_count = osfs_inode->i_size / sizeof(struct osfs_dir_entry);
-    dir_entries = (struct osfs_dir_entry *)dir_data_block;
+    // Traverse all extents of the directory
+    for (ext = 0; ext < osfs_inode->num_extents; ext++) {
+        dir_data_block = sb_info->data_blocks + osfs_inode->extents[ext].start_block * BLOCK_SIZE;
+        int dir_entry_count = osfs_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
+        dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
-    /* Adjust the index based on ctx->pos */
-    i = ctx->pos - 2;
+        for (i = ctx->pos - 2; i < dir_entry_count; i++) {
+            struct osfs_dir_entry *entry = &dir_entries[i];
+            unsigned int type = DT_UNKNOWN;
 
-    for (; i < dir_entry_count; i++) {
-        struct osfs_dir_entry *entry = &dir_entries[i];
-        unsigned int type = DT_UNKNOWN;
+            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
+                pr_err("osfs_iterate: dir_emit failed for entry '%s'\n", entry->filename);
+                return -EINVAL;
+            }
 
-        if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
-            pr_err("osfs_iterate: dir_emit failed for entry '%s'\n", entry->filename);
-            return -EINVAL;
+            ctx->pos++;
         }
-
-        ctx->pos++;
     }
 
     return 0;
 }
+
 
 /**
  * Function: osfs_new_inode
@@ -119,125 +117,105 @@ struct inode *osfs_new_inode(const struct inode *dir, umode_t mode)
     struct osfs_inode *osfs_inode;
     int ino, ret;
 
-    /* Check if the mode is supported */
+    // Validate mode
     if (!S_ISDIR(mode) && !S_ISREG(mode) && !S_ISLNK(mode)) {
-        pr_err("File type not supported (only directory, regular file and symlink supported)\n");
+        pr_err("osfs_new_inode: Unsupported file type\n");
         return ERR_PTR(-EINVAL);
     }
 
-    /* Check if there are free inodes and blocks */
+    // Ensure free inodes and blocks are available
     if (sb_info->nr_free_inodes == 0 || sb_info->nr_free_blocks == 0)
         return ERR_PTR(-ENOSPC);
 
-    /* Allocate a new inode number */
+    // Allocate inode number
     ino = osfs_get_free_inode(sb_info);
     if (ino < 0 || ino >= sb_info->inode_count)
         return ERR_PTR(-ENOSPC);
 
-    /* Allocate a new VFS inode */
+    // Allocate VFS inode
     inode = new_inode(sb);
     if (!inode)
         return ERR_PTR(-ENOMEM);
 
-    /* Initialize inode owner and permissions */
+    // Initialize inode
     inode_init_owner(&nop_mnt_idmap, inode, dir, mode);
     inode->i_ino = ino;
     inode->i_sb = sb;
     inode->i_blocks = 0;
     simple_inode_init_ts(inode);
 
-    /* Set inode operations based on file type */
+    // Set inode operations
     if (S_ISDIR(mode)) {
         inode->i_op = &osfs_dir_inode_operations;
         inode->i_fop = &osfs_dir_operations;
-        set_nlink(inode, 2); /* . and .. */
-        inode->i_size = 0;
+        set_nlink(inode, 2); // . and ..
     } else if (S_ISREG(mode)) {
         inode->i_op = &osfs_file_inode_operations;
         inode->i_fop = &osfs_file_operations;
         set_nlink(inode, 1);
-        inode->i_size = 0;
-    } else if (S_ISLNK(mode)) {
-        // inode->i_op = &osfs_symlink_inode_operations;
-        set_nlink(inode, 1);
-        inode->i_size = 0;
     }
 
-    /* Get osfs_inode */
+    // Get osfs_inode
     osfs_inode = osfs_get_osfs_inode(sb, ino);
     if (!osfs_inode) {
-        pr_err("osfs_new_inode: Failed to get osfs_inode for inode %d\n", ino);
+        pr_err("osfs_new_inode: Failed to get osfs_inode\n");
         iput(inode);
         return ERR_PTR(-EIO);
     }
     memset(osfs_inode, 0, sizeof(*osfs_inode));
 
-    /* Initialize osfs_inode */
-    osfs_inode->i_ino = ino;
-    osfs_inode->i_mode = inode->i_mode;
-    osfs_inode->i_uid = i_uid_read(inode);
-    osfs_inode->i_gid = i_gid_read(inode);
-    osfs_inode->i_size = inode->i_size;
-    osfs_inode->i_blocks = 1; // Simplified handling
-    osfs_inode->__i_atime = osfs_inode->__i_mtime = osfs_inode->__i_ctime = current_time(inode);
-    inode->i_private = osfs_inode;
-
-    /* Allocate data block */
-    ret = osfs_alloc_data_block(sb_info, &osfs_inode->i_block);
+    // Allocate initial extent
+    ret = osfs_alloc_extent(sb_info, &osfs_inode->extents[0].start_block, 1);
     if (ret) {
-        pr_err("osfs_new_inode: Failed to allocate data block\n");
+        pr_err("osfs_new_inode: Failed to allocate extent\n");
         iput(inode);
         return ERR_PTR(ret);
     }
+    osfs_inode->extents[0].length = 1;
+    osfs_inode->num_extents = 1;
+    osfs_inode->i_ino = ino;
+    osfs_inode->i_mode = mode;
+    osfs_inode->i_size = 0;
+    osfs_inode->i_blocks = 1;
+    osfs_inode->__i_atime = osfs_inode->__i_mtime = osfs_inode->__i_ctime = current_time(inode);
+    inode->i_private = osfs_inode;
 
-    /* Update superblock information */
+    // Update superblock
     sb_info->nr_free_inodes--;
-
-    /* Mark inode as dirty */
-    mark_inode_dirty(inode);
 
     return inode;
 }
+
 
 static int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *name, size_t name_len)
 {
     struct osfs_sb_info *sb_info = dir->i_sb->s_fs_info;
     struct osfs_inode *parent_inode = dir->i_private;
-    void *dir_data_block;
     struct osfs_dir_entry *dir_entries;
-    int dir_entry_count;
-    int i;
+    void *dir_data_block;
+    int i, ext;
 
-    // Read the parent directory's data block
-    dir_data_block = sb_info->data_blocks + parent_inode->i_block * BLOCK_SIZE;
+    // Traverse all extents of the directory
+    for (ext = 0; ext < parent_inode->num_extents; ext++) {
+        dir_data_block = sb_info->data_blocks + parent_inode->extents[ext].start_block * BLOCK_SIZE;
+        int dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
+        dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
-    // Calculate the existing number of directory entries
-    dir_entry_count = parent_inode->i_size / sizeof(struct osfs_dir_entry);
-    if (dir_entry_count >= MAX_DIR_ENTRIES) {
-        pr_err("osfs_add_dir_entry: Parent directory is full\n");
-        return -ENOSPC;
-    }
-
-    dir_entries = (struct osfs_dir_entry *)dir_data_block;
-
-    // Check if a file with the same name exists
-    for (i = 0; i < dir_entry_count; i++) {
-        if (strlen(dir_entries[i].filename) == name_len &&
-            strncmp(dir_entries[i].filename, name, name_len) == 0) {
-            pr_warn("osfs_add_dir_entry: File '%.*s' already exists\n", (int)name_len, name);
-            return -EEXIST;
+        // Check if space is available and add the entry
+        for (i = 0; i < dir_entry_count; i++) {
+            if (dir_entries[i].inode_no == 0) { // Empty slot
+                strncpy(dir_entries[i].filename, name, name_len);
+                dir_entries[i].filename[name_len] = '\0';
+                dir_entries[i].inode_no = inode_no;
+                parent_inode->i_size += sizeof(struct osfs_dir_entry);
+                return 0;
+            }
         }
     }
 
-    // Add a new directory entry
-    strncpy(dir_entries[dir_entry_count].filename, name, name_len);
-    dir_entries[dir_entry_count].filename[name_len] = '\0';
-    dir_entries[dir_entry_count].inode_no = inode_no;
-
-    // Update the size of the parent directory
-    parent_inode->i_size += sizeof(struct osfs_dir_entry);
-
-    return 0;
+    // No space available
+    pr_err("osfs_add_dir_entry: No space available in parent directory\n");
+    return -ENOSPC;
 }
 
 
