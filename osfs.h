@@ -88,6 +88,7 @@ int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint3
 uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length);
 void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
 void set_block_bitmap(struct osfs_sb_info *sb_info, uint32_t block_no);
+int is_block_range_free(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
 // External Operations Structures
 
 extern const struct inode_operations osfs_file_inode_operations;

@@ -44,6 +44,30 @@ int osfs_get_free_inode(struct osfs_sb_info *sb_info)
     pr_err("osfs_get_free_inode: No free inode available\n");
     return -ENOSPC;
 }
+/**
+ * Function: is_block_range_free
+ * Description: Checks if a range of blocks is free in the block bitmap.
+ * Inputs:
+ *   - sb_info: The superblock information (contains the block bitmap).
+ *   - start_block: The starting block of the range to check.
+ *   - length: The number of blocks to check.
+ * Returns:
+ *   - true (1) if all blocks in the range are free.
+ *   - false (0) if any block in the range is occupied.
+ */
+int is_block_range_free(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length)
+{
+    uint32_t i;
+
+    for (i = start_block; i < start_block + length; i++) {
+        // If any block is occupied, return false (0)
+        if (test_bit(i, sb_info->block_bitmap)) {
+            return 0; // Block is in use
+        }
+    }
+
+    return 1; // All blocks in the range are free
+}
 uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length) {
     for (uint32_t i = 0; i < sb_info->data_blocks - length; i++) {
         if (is_block_range_free(sb_info, i, length))
