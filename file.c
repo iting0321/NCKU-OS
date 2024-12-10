@@ -136,6 +136,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
         bytes_written += to_write;
         remaining -= to_write;
         osfs_inode->i_size = umax(osfs_inode->i_size, *ppos);
+        inode->i_size = osfs_inode->i_size;
     }
 
     osfs_inode->__i_mtime = current_time(inode);
