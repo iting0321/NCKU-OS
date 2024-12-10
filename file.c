@@ -33,7 +33,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
     if (*ppos + len > osfs_inode->i_size)
         len = osfs_inode->i_size - *ppos;
 
-    data_block = sb_info->data_blocks + osfs_inode->i_block * BLOCK_SIZE + *ppos;
+    data_block = sb_info->data_blocks + osfs_inode->i_blocks * BLOCK_SIZE + *ppos;
     if (copy_to_user(buf, data_block, len))
         return -EFAULT;
 
@@ -81,7 +81,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
         len = BLOCK_SIZE - *ppos;
 
     // Step 4: Write data from user space to the data block
-    data_block = sb_info->data_blocks + osfs_inode->i_block * BLOCK_SIZE + *ppos;
+    data_block = sb_info->data_blocks + osfs_inode->i_blocks * BLOCK_SIZE + *ppos;
     if (copy_from_user(data_block, buf, len)) {
         pr_err("osfs_write: Failed to copy data from user space\n");
         return -EFAULT;
@@ -89,7 +89,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
 
     // Step 5: Update inode & osfs_inode attribute
     *ppos += len;
-    osfs_inode->i_size = max(osfs_inode->i_size, *ppos);
+    osfs_inode->i_size = umax(osfs_inode->i_size, *ppos);
     osfs_inode->__i_mtime = current_time(inode);
     osfs_inode->__i_ctime = current_time(inode);
     mark_inode_dirty(inode);
