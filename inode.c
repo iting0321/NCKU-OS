@@ -44,6 +44,21 @@ int osfs_get_free_inode(struct osfs_sb_info *sb_info)
     pr_err("osfs_get_free_inode: No free inode available\n");
     return -ENOSPC;
 }
+void osfs_free_extents(struct osfs_inode *osfs_inode)
+{
+    struct osfs_extent *current = osfs_inode->extent_list;
+    struct osfs_extent *next;
+
+    while (current) {
+        next = current->next;   // Save the pointer to the next extent
+        kfree(current);         // Free the current extent
+        current = next;         // Move to the next extent
+    }
+
+    osfs_inode->extent_list = NULL;
+    osfs_inode->i_blocks = 0;
+}
+
 /**
  * Function: is_block_range_free
  * Description: Checks if a range of blocks is free in the block bitmap.
@@ -157,6 +172,33 @@ int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint3
 
     osfs_mark_blocks_used(sb_info, free_block, length); // Mark the blocks as used
     *start_block = free_block;
+    return 0;
+}
+int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length)
+{
+    struct osfs_extent *new_extent, *current;
+
+    // Allocate memory for the new extent
+    new_extent = kmalloc(sizeof(struct osfs_extent), GFP_KERNEL);
+    if (!new_extent)
+        return -ENOMEM;
+
+    new_extent->start_block = start_block;
+    new_extent->length = length;
+    new_extent->next = NULL;
+
+    // Append to the linked list
+    if (!osfs_inode->extent_list) {
+        osfs_inode->extent_list = new_extent; // First extent
+    } else {
+        current = osfs_inode->extent_list;
+        while (current->next) {
+            current = current->next; // Traverse to the end
+        }
+        current->next = new_extent; // Append at the end
+    }
+
+    osfs_inode->i_blocks += length; // Update total block count
     return 0;
 }
 

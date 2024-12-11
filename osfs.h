@@ -55,6 +55,7 @@ struct osfs_dir_entry {
 struct osfs_extent {
     uint32_t start_block; // Start block of the extent
     uint32_t length;      // Number of contiguous blocks
+    struct osfs_extent *next;    // Pointer to the next extent
 };
 /**
  * Struct: osfs_inode
@@ -72,8 +73,7 @@ struct osfs_inode {
     struct timespec64 __i_mtime;        // Last modification time
     struct timespec64 __i_ctime;        // Creation time
     uint32_t i_block;                   // Simplified handling, single data block pointer
-    struct osfs_extent extents[MAX_EXTENTS]; // Array of extents
-    uint32_t num_extents;                   // Number of used extents
+    struct osfs_extent *extent_list;     // Head of the linked list of extents
 };
 
 struct inode *osfs_iget(struct super_block *sb, unsigned long ino);
@@ -89,6 +89,8 @@ uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length);
 void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
 void set_block_bitmap(struct osfs_sb_info *sb_info, uint32_t block_no);
 int is_block_range_free(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
+int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length);
+void osfs_free_extents(struct osfs_inode *osfs_inode);
 // External Operations Structures
 
 extern const struct inode_operations osfs_file_inode_operations;

@@ -20,14 +20,14 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
     struct inode *inode = file_inode(filp);
     struct osfs_inode *osfs_inode = inode->i_private;
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
+    struct osfs_extent *extent = osfs_inode->extent_list;
+    void *data_block;
     ssize_t bytes_read = 0;
     size_t remaining = len;
     size_t offset, to_read;
-    void *data_block;
-    int i;
 
-    // If the file is empty or the read position exceeds file size, return 0
-    if (osfs_inode->num_extents == 0 || *ppos >= osfs_inode->i_size)
+    // Check for EOF
+    if (*ppos >= osfs_inode->i_size)
         return 0;
 
     // Adjust the read length if it exceeds the file size
@@ -35,14 +35,15 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         len = osfs_inode->i_size - *ppos;
 
     // Traverse extents to read data
-    for (i = 0; i < osfs_inode->num_extents && remaining > 0; i++) {
-        struct osfs_extent *extent = &osfs_inode->extents[i];
+    while (remaining > 0 && extent) {
         size_t extent_start = extent->start_block * BLOCK_SIZE;
         size_t extent_end = extent_start + extent->length * BLOCK_SIZE;
 
-        // Skip extents that are before the current read position
-        if (*ppos >= extent_end)
+        // Skip extents before the current position
+        if (*ppos >= extent_end) {
+            extent = extent->next;
             continue;
+        }
 
         // Calculate offset within the extent
         offset = (*ppos > extent_start) ? *ppos - extent_start : 0;
@@ -50,12 +51,12 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         // Determine the number of bytes to read from this extent
         to_read = min(remaining, extent_end - (*ppos + offset));
 
-        // Get the starting point in the data block
+        // Read data from the extent
         data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE + offset;
-
-        // Copy data to user space
-        if (copy_to_user(buf + bytes_read, data_block, to_read))
+        if (copy_to_user(buf + bytes_read, data_block, to_read)) {
+            pr_err("osfs_read: Failed to copy data to user space\n");
             return -EFAULT;
+        }
 
         // Update counters and positions
         *ppos += to_read;
@@ -63,6 +64,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         remaining -= to_read;
     }
 
+    pr_info("osfs_read: Read %zu bytes from file inode %lu\n", bytes_read, inode->i_ino);
     return bytes_read;
 }
 
@@ -86,24 +88,22 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     struct inode *inode = file_inode(filp);
     struct osfs_inode *osfs_inode = inode->i_private;
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
+    struct osfs_extent *extent = osfs_inode->extent_list;
     void *data_block;
     ssize_t bytes_written = 0;
     size_t remaining = len;
     size_t offset, to_write;
-    int ret, i;
+    int ret;
 
-    // Ensure there's space for new extents
-    if (osfs_inode->num_extents >= MAX_EXTENTS) {
-        pr_err("osfs_write: Maximum number of extents reached\n");
-        return -ENOSPC;
-    }
-
-    // Loop to handle writing across multiple extents
+    // Traverse the extent list to find the correct extent or allocate a new one
     while (remaining > 0) {
-        struct osfs_extent *extent = &osfs_inode->extents[osfs_inode->num_extents - 1];
+        // Find the last extent or an extent that can accommodate the write
+        while (extent && *ppos >= (extent->start_block * BLOCK_SIZE + extent->length * BLOCK_SIZE)) {
+            extent = extent->next;
+        }
 
-        // Check if the last extent has free space; if not, allocate a new extent
-        if (osfs_inode->num_extents == 0 || *ppos >= extent->start_block * BLOCK_SIZE + extent->length * BLOCK_SIZE) {
+        // Allocate a new extent if necessary
+        if (!extent) {
             uint32_t start_block;
             size_t blocks_needed = (remaining + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
@@ -114,10 +114,18 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
                 return ret;
             }
 
-            // Initialize the new extent
-            extent = &osfs_inode->extents[osfs_inode->num_extents++];
-            extent->start_block = start_block;
-            extent->length = blocks_needed;
+            // Add the new extent to the list
+            ret = osfs_add_extent(osfs_inode, start_block, blocks_needed);
+            if (ret) {
+                pr_err("osfs_write: Failed to add extent to inode\n");
+                return ret;
+            }
+
+            // Set the newly allocated extent as the current extent
+            extent = osfs_inode->extent_list;
+            while (extent->next) {
+                extent = extent->next; // Traverse to the newly added extent
+            }
         }
 
         // Write within the current extent
@@ -130,7 +138,6 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
             return -EFAULT;
         }
 
-        
         // Update metadata and counters
         *ppos += to_write;
         bytes_written += to_write;
@@ -143,6 +150,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     osfs_inode->__i_ctime = current_time(inode);
     mark_inode_dirty(inode);
 
+    pr_info("osfs_write: Wrote %zu bytes to file inode %lu\n", bytes_written, inode->i_ino);
     return bytes_written;
 }
 
