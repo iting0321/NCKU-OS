@@ -21,21 +21,24 @@ static struct dentry *osfs_lookup(struct inode *dir, struct dentry *dentry, unsi
     struct osfs_dir_entry *dir_entries;
     struct inode *inode = NULL;
     void *dir_data_block;
-    int i, ext;
+    int i;
+    struct osfs_extent *extent;
 
     pr_info("osfs_lookup: Looking up '%.*s' in inode %lu\n",
             (int)dentry->d_name.len, dentry->d_name.name, dir->i_ino);
 
-    // Traverse all extents of the directory
-    for (ext = 0; ext < parent_inode->num_extents; ext++) {
-        dir_data_block = sb_info->data_blocks + parent_inode->extents[ext].start_block * BLOCK_SIZE;
-        int dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
+    // Traverse all extents of the directory (using linked list)
+    extent = parent_inode->extent_list;  // Start from the first extent in the linked list
+    while (extent) {
+        dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
+        int dir_entry_count = extent->length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
         // Search for the file within this extent
         for (i = 0; i < dir_entry_count; i++) {
             if (strlen(dir_entries[i].filename) == dentry->d_name.len &&
                 strncmp(dir_entries[i].filename, dentry->d_name.name, dentry->d_name.len) == 0) {
+                // File found, get inode
                 inode = osfs_iget(dir->i_sb, dir_entries[i].inode_no);
                 if (IS_ERR(inode)) {
                     pr_err("osfs_lookup: Error getting inode %u\n", dir_entries[i].inode_no);
@@ -44,10 +47,14 @@ static struct dentry *osfs_lookup(struct inode *dir, struct dentry *dentry, unsi
                 return d_splice_alias(inode, dentry);
             }
         }
+
+        extent = extent->next; // Move to the next extent in the linked list
     }
 
+    pr_info("osfs_lookup: File '%.*s' not found\n", (int)dentry->d_name.len, dentry->d_name.name);
     return NULL; // File not found
 }
+
 
 /**
  * Function: osfs_iterate
@@ -66,20 +73,23 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct osfs_inode *osfs_inode = inode->i_private;
     void *dir_data_block;
     struct osfs_dir_entry *dir_entries;
-    int dir_entry_count, i, ext;
+    int dir_entry_count, i;
+    struct osfs_extent *extent;
 
+    // Emit '.' and '..' entries
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
-            return 0;
+            return 0; // No more entries to iterate
         }
     }
 
-    // Traverse directory extents to find entries
-    for (ext = 0; ext < osfs_inode->num_extents; ext++) {
-        dir_data_block = sb_info->data_blocks + osfs_inode->extents[ext].start_block * BLOCK_SIZE;
+    // Traverse directory extents to find entries (using linked list)
+    extent = osfs_inode->extent_list;  // Start from the first extent in the linked list
+    while (extent) {
+        dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
-        dir_entry_count = (osfs_inode->extents[ext].length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
+        dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
         for (i = 0; i < dir_entry_count; i++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
@@ -95,12 +105,14 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
             unsigned int type = DT_UNKNOWN; // Use DT_UNKNOWN if file type is unknown
             if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
                 pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
-                return 0; // Stop iteration gracefully
+                return 0; // Stop iteration gracefully if buffer is full
             }
 
             // Update directory position
             ctx->pos++;
         }
+
+        extent = extent->next; // Move to the next extent in the linked list
     }
 
     return 0;

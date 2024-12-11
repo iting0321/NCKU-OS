@@ -46,14 +46,14 @@ int osfs_get_free_inode(struct osfs_sb_info *sb_info)
 }
 void osfs_free_extents(struct osfs_inode *osfs_inode)
 {
-    struct osfs_extent *current = osfs_inode->extent_list;
+    struct osfs_extent *cur = osfs_inode->extent_list;
     struct osfs_extent *next;
 
-    while (current) {
-        next = current->next;   // Save the pointer to the next extent
+    while (cur) {
+        next = cur->next;   // Save the pointer to the next extent
         struct osfs_extent *tmp = current;
         kfree(tmp);         // Free the current extent
-        current = next;         // Move to the next extent
+        cur = next;         // Move to the next extent
     }
 
     osfs_inode->extent_list = NULL;
@@ -180,7 +180,7 @@ int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_
     struct osfs_extent *new_extent, *current;
 
     // Allocate memory for the new extent
-    new_extent = kmalloc(sizeof(struct osfs_extent), GFP_KERNEL);
+    new_extent = malloc(sizeof(struct osfs_extent), GFP_KERNEL);
     if (!new_extent)
         return -ENOMEM;
 

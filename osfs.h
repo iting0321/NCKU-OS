@@ -74,6 +74,7 @@ struct osfs_inode {
     struct timespec64 __i_ctime;        // Creation time
     uint32_t i_block;                   // Simplified handling, single data block pointer
     struct osfs_extent *extent_list;     // Head of the linked list of extents
+    uint32_t num_extents;
 };
 
 int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length);
