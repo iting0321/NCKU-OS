@@ -51,7 +51,8 @@ void osfs_free_extents(struct osfs_inode *osfs_inode)
 
     while (current) {
         next = current->next;   // Save the pointer to the next extent
-        kfree(current);         // Free the current extent
+        struct osfs_extent *tmp = current;
+        kfree(tmp);         // Free the current extent
         current = next;         // Move to the next extent
     }
 

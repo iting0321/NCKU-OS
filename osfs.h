@@ -76,6 +76,9 @@ struct osfs_inode {
     struct osfs_extent *extent_list;     // Head of the linked list of extents
 };
 
+int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length);
+void osfs_free_extents(struct osfs_inode *osfs_inode);
+
 struct inode *osfs_iget(struct super_block *sb, unsigned long ino);
 struct osfs_inode *osfs_get_osfs_inode(struct super_block *sb, uint32_t ino);
 int osfs_get_free_inode(struct osfs_sb_info *sb_info);
@@ -89,8 +92,6 @@ uint32_t osfs_find_free_blocks(struct osfs_sb_info *sb_info, uint32_t length);
 void osfs_mark_blocks_used(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
 void set_block_bitmap(struct osfs_sb_info *sb_info, uint32_t block_no);
 int is_block_range_free(struct osfs_sb_info *sb_info, uint32_t start_block, uint32_t length);
-int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length);
-void osfs_free_extents(struct osfs_inode *osfs_inode);
 // External Operations Structures
 
 extern const struct inode_operations osfs_file_inode_operations;
