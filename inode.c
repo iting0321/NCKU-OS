@@ -51,8 +51,8 @@ void osfs_free_extents(struct osfs_inode *osfs_inode)
 
     while (cur) {
         next = cur->next;   // Save the pointer to the next extent
-        struct osfs_extent *tmp = current;
-        kfree(tmp);         // Free the current extent
+        struct osfs_extent *tmp = cur;
+        kfree(tmp);         // Free the cur extent
         cur = next;         // Move to the next extent
     }
 
@@ -177,7 +177,7 @@ int osfs_alloc_extent(struct osfs_sb_info *sb_info, uint32_t *start_block, uint3
 }
 int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_t length)
 {
-    struct osfs_extent *new_extent, *current;
+    struct osfs_extent *new_extent, *cur;
 
     // Allocate memory for the new extent
     new_extent = malloc(sizeof(struct osfs_extent), GFP_KERNEL);
@@ -192,11 +192,11 @@ int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_
     if (!osfs_inode->extent_list) {
         osfs_inode->extent_list = new_extent; // First extent
     } else {
-        current = osfs_inode->extent_list;
-        while (current->next) {
-            current = current->next; // Traverse to the end
+        cur = osfs_inode->extent_list;
+        while (cur->next) {
+            cur = cur->next; // Traverse to the end
         }
-        current->next = new_extent; // Append at the end
+        cur->next = new_extent; // Append at the end
     }
 
     osfs_inode->i_blocks += length; // Update total block count
