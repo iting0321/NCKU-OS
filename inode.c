@@ -180,7 +180,7 @@ int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_
     struct osfs_extent *new_extent, *cur;
 
     // Allocate memory for the new extent
-    new_extent = malloc(sizeof(struct osfs_extent), GFP_KERNEL);
+    new_extent = kmalloc(sizeof(struct osfs_extent), GFP_KERNEL);
     if (!new_extent)
         return -ENOMEM;
 

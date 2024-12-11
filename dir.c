@@ -188,19 +188,35 @@ struct inode *osfs_new_inode(const struct inode *dir, umode_t mode)
     }
     memset(osfs_inode, 0, sizeof(*osfs_inode));
 
-    // Allocate initial extent
-    ret = osfs_alloc_extent(sb_info, &osfs_inode->extents[0].start_block, 1);
+    // Allocate initial extent for the inode (linked list)
+    uint32_t start_block;
+    ret = osfs_alloc_extent(sb_info, &start_block, 1);  // Allocate 1 block for the first extent
     if (ret) {
         pr_err("osfs_new_inode: Failed to allocate extent\n");
         iput(inode);
         return ERR_PTR(ret);
     }
-    osfs_inode->extents[0].length = 1;
-    osfs_inode->num_extents = 1;
+
+    // Create and add the first extent to the linked list
+    struct osfs_extent *new_extent = kmalloc(sizeof(struct osfs_extent), GFP_KERNEL);
+    if (!new_extent) {
+        pr_err("osfs_new_inode: Memory allocation for new extent failed\n");
+        iput(inode);
+        return ERR_PTR(-ENOMEM);
+    }
+
+    new_extent->start_block = start_block;
+    new_extent->length = 1;  // 1 block in this extent
+    new_extent->next = NULL; // No next extent yet
+
+    // Add this new extent to the linked list
+    osfs_inode->extent_list = new_extent;
+
+    // Update inode and osfs_inode attributes
     osfs_inode->i_ino = ino;
     osfs_inode->i_mode = mode;
-    osfs_inode->i_size = 0;
-    osfs_inode->i_blocks = 1;
+    osfs_inode->i_size = 0;  // Initially the file size is 0
+    osfs_inode->i_blocks = 1;  // One block allocated
     osfs_inode->__i_atime = osfs_inode->__i_mtime = osfs_inode->__i_ctime = current_time(inode);
     inode->i_private = osfs_inode;
 
