@@ -71,7 +71,7 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
-    struct osfs_extent *extent;
+    struct osfs_extent *extent = osfs_inode->extent_list;
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
     int dir_entry_count, i;
@@ -80,19 +80,21 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
-            return 0;
+            return 0; // No more entries to iterate
         }
     }
 
     // Traverse directory extents
-    extent = osfs_inode->extent_list;
-    while (extent && osfs_inode->num_extents > 0) {
+    while (extent) {
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
         for (i = 0; i < dir_entry_count; i++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
+
+            // Debugging: Print entry state
+            pr_debug("osfs_iterate: Entry[%d] filename='%s', inode_no=%u\n", i, entry->filename, entry->inode_no);
 
             // Skip invalid or empty entries
             if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
@@ -245,6 +247,7 @@ int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *name, s
         // Search for an empty slot in the current extent
         for (i = 0; i < dir_entry_count; i++) {
             if (dir_entries[i].inode_no == 0) {  // Empty slot found
+                memset(dir_entries[i].filename, 0, MAX_FILENAME_LEN); // Clear the filename field
                 strncpy(dir_entries[i].filename, name, name_len);
                 dir_entries[i].filename[name_len] = '\0';
                 dir_entries[i].inode_no = inode_no;
@@ -270,7 +273,7 @@ int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *name, s
     // Initialize the new extent's data
     dir_data_block = sb_info->data_blocks + new_start_block * BLOCK_SIZE;
     dir_entries = (struct osfs_dir_entry *)dir_data_block;
-    memset(dir_entries, 0, BLOCK_SIZE);
+    memset(dir_entries, 0, BLOCK_SIZE);  // Clear the newly allocated block
     strncpy(dir_entries[0].filename, name, name_len);
     dir_entries[0].filename[name_len] = '\0';
     dir_entries[0].inode_no = inode_no;
