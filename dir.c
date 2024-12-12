@@ -75,8 +75,9 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
     int dir_entry_count, i;
+    size_t processed_entries = 0;
 
-    // Emit '.' and '..' entries
+    // Emit '.' and '..' entries at the beginning
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
@@ -84,8 +85,8 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
         }
     }
 
-    // Traverse directory extents
-    while (extent) {
+    // Limit the iteration based on the directory size
+    while (extent && processed_entries < (osfs_inode->i_size / sizeof(struct osfs_dir_entry))) {
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
@@ -93,8 +94,13 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
         for (i = 0; i < dir_entry_count; i++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
 
-            // Debugging: Print entry state
+            // Debugging: Print the current entry being processed
             pr_debug("osfs_iterate: Entry[%d] filename='%s', inode_no=%u\n", i, entry->filename, entry->inode_no);
+
+            // Stop if we've processed all valid entries
+            if (processed_entries >= (osfs_inode->i_size / sizeof(struct osfs_dir_entry))) {
+                return 0;
+            }
 
             // Skip invalid or empty entries
             if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
@@ -106,11 +112,12 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
             // Emit the directory entry
             if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
                 pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
-                return 0; // Stop iteration gracefully
+                return 0; // Stop iteration gracefully if buffer is full
             }
 
-            // Update directory position
+            // Update directory position and processed entry count
             ctx->pos++;
+            processed_entries++;
         }
 
         extent = extent->next; // Move to the next extent
