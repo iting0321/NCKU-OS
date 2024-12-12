@@ -72,70 +72,69 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
+    struct osfs_extent *extent = osfs_inode->extent_list;
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
-    struct osfs_extent *extent;
-    int dir_entry_count, i, entry_index = 0;
+    int dir_entry_count, i, entries_processed = 0;
 
-    pr_info("osfs_iterate: Starting directory iteration for inode %lu (ctx->pos=%llu)\n",
-            inode->i_ino, ctx->pos);
+    pr_info("osfs_iterate: Starting directory iteration for inode %lu\n", inode->i_ino);
 
-    // Emit '.' and '..' if ctx->pos is 0
+    // Emit '.' and '..' entries first
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
-            return 0; // Stop if unable to emit
+            return 0; // No more entries to emit
         }
-        ctx->pos += 2; // Increment position for '.' and '..'
+        ctx->pos += 2; // Update position to account for '.' and '..'
     }
 
-    // Traverse extents to emit directory entries
-    extent = osfs_inode->extent_list;
-    int extent_index = 0;
-
-    while (extent) {
-        pr_info("osfs_iterate: Traversing extent[%d]: start_block=%u, length=%u\n",
-                extent_index, extent->start_block, extent->length);
+    // Traverse extents
+    for(int i =0; i<osfs_inode->num_extents;++i) {
+        pr_info("osfs_iterate: Processing extent start_block=%u, length=%u\n",
+                extent->start_block, extent->length);
 
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
-        for (i = 0; i < dir_entry_count; i++, entry_index++) {
+        for (i = 0; i < dir_entry_count; i++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
-
-            // Skip entries already processed
-            if (entry_index < ctx->pos) {
-                continue;
-            }
 
             // Skip invalid or empty entries
             if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
-                pr_debug("osfs_iterate: Skipping invalid entry at slot %d (filename='%s', inode_no=%u)\n",
-                         i, entry->filename, entry->inode_no);
+                pr_debug("osfs_iterate: Skipping invalid entry (filename='%s', inode_no=%u)\n",
+                         entry->filename, entry->inode_no);
                 continue;
             }
 
-            // Emit valid directory entry
-            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
-                pr_warn("osfs_iterate: Buffer full, stopping iteration\n");
-                return 0; // Stop if buffer is full
+            // Process only if ctx->pos matches the current index
+            if (entries_processed < ctx->pos - 2) {
+                entries_processed++;
+                continue;
             }
 
-            pr_info("osfs_iterate: Emitted entry[%d]: filename='%s', inode_no=%u\n",
-                    entry_index, entry->filename, entry->inode_no);
+            pr_info("osfs_iterate: Emitting entry[%d]: filename='%s', inode_no=%u\n",
+                    i, entry->filename, entry->inode_no);
 
-            ctx->pos++; // Increment position after emitting
+            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
+                pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
+                return 0; // Stop gracefully
+            }
+
+            // Update position and processed count
+            ctx->pos++;
+            entries_processed++;
         }
 
         extent = extent->next; // Move to the next extent
-        extent_index++;
     }
 
-    pr_info("osfs_iterate: Finished directory iteration, emitted %llu entries\n", ctx->pos - 2);
-    return 0; // Successfully completed the iteration
+    return 0;
 }
 
+
+    
+    
 
 
 /**
