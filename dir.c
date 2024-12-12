@@ -67,81 +67,32 @@ static struct dentry *osfs_lookup(struct inode *dir, struct dentry *dentry, unsi
  *   - A negative error code on failure.
  */
 
-// static int osfs_iterate(struct file *filp, struct dir_context *ctx)
-// {
-//     struct inode *inode = file_inode(filp);
-//     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
-//     struct osfs_inode *osfs_inode = inode->i_private;
-//     struct osfs_extent *extent = osfs_inode->extent_list;
-//     struct osfs_dir_entry *dir_entries;
-//     void *dir_data_block;
-//     int dir_entry_count, i;
-
-//     // Emit '.' and '..' entries
-//     if (ctx->pos == 0) {
-//         if (!dir_emit_dots(filp, ctx)) {
-//             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
-//             return 0;
-//         }
-//     }
-
-//     // Process directory entries based on i_size
-//     while (extent || ctx->pos < (osfs_inode->i_size / sizeof(struct osfs_dir_entry))) {
-//         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
-//         dir_entries = (struct osfs_dir_entry *)dir_data_block;
-//         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
-        
-        
-
-//         for (i = 0; i < dir_entry_count; i++) {
-//             struct osfs_dir_entry *entry = &dir_entries[i];
-//             pr_info("osfs_iterate: Entry[%d]: filename='%s', inode_no=%u\n", i, entry->filename, entry->inode_no);
-//             pr_info("osfs_iterate: Processing extent at block %u\n", extent->start_block);
-//             // Skip invalid or uninitialized entries
-//             if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
-//                 pr_warn("osfs_iterate: Skipping invalid entry (filename='%s', inode_no=%u)\n",
-//                         entry->filename, entry->inode_no);
-//                 continue;
-//             }
-
-//             // Emit the directory entry
-//             if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
-//                 pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
-//                 return 0;
-//             }
-
-//             ctx->pos++; // Update directory position
-//         }
-
-//         extent = extent->next; // Move to the next extent
-//     }
-
-//     return 0;
-// }
 static int osfs_iterate(struct file *filp, struct dir_context *ctx)
 {
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
-    struct osfs_extent *extent = osfs_inode->extent_list;
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
-    int dir_entry_count, i, entries_processed = 0;
+    struct osfs_extent *extent;
+    int dir_entry_count, i;
+    int entries_emitted = 0;
 
     pr_info("osfs_iterate: Starting directory iteration for inode %lu\n", inode->i_ino);
 
-    // Emit '.' and '..' entries first
+    // Emit '.' and '..' if ctx->pos is 0
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
             return 0; // No more entries to emit
         }
-        ctx->pos += 2; // Update position to account for '.' and '..'
+        ctx->pos += 2; // Update position
     }
 
     // Traverse extents
+    extent = osfs_inode->extent_list;
     while (extent) {
-        pr_info("osfs_iterate: Processing extent start_block=%u, length=%u\n",
+        pr_info("osfs_iterate: Traversing extent (start_block=%u, length=%u)\n",
                 extent->start_block, extent->length);
 
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
@@ -153,33 +104,25 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
 
             // Skip invalid or empty entries
             if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
-                pr_debug("osfs_iterate: Skipping invalid entry (filename='%s', inode_no=%u)\n",
-                         entry->filename, entry->inode_no);
+                pr_debug("osfs_iterate: Skipping invalid entry at slot %d\n", i);
                 continue;
             }
 
-            // Process only if ctx->pos matches the current index
-            if (entries_processed < ctx->pos - 2) {
-                entries_processed++;
-                continue;
-            }
-
-            pr_info("osfs_iterate: Emitting entry[%d]: filename='%s', inode_no=%u\n",
-                    i, entry->filename, entry->inode_no);
-
+            // Emit the entry
             if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
-                pr_warn("osfs_iterate: Buffer full, stopping directory iteration\n");
-                return 0; // Stop gracefully
+                pr_warn("osfs_iterate: Buffer full, stopping iteration\n");
+                return 0; // Stop gracefully if buffer is full
             }
 
-            // Update position and processed count
-            ctx->pos++;
-            entries_processed++;
+            pr_info("osfs_iterate: Emitted entry[%d]: filename='%s', inode_no=%u\n", i, entry->filename, entry->inode_no);
+            ctx->pos++; // Update directory position
+            entries_emitted++;
         }
 
         extent = extent->next; // Move to the next extent
     }
 
+    pr_info("osfs_iterate: Finished directory iteration, emitted %d entries\n", entries_emitted);
     return 0;
 }
 
@@ -299,86 +242,78 @@ int osfs_add_dir_entry(struct inode *dir, uint32_t inode_no, const char *name, s
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
     struct osfs_extent *extent;
-    int dir_entry_count, i, ret;
+    int dir_entry_count, i;
 
-    pr_info("osfs_add_dir_entry: Adding '%s' with inode_no=%u\n", name, inode_no);
+    pr_info("osfs_add_dir_entry: Adding entry '%s' (inode_no=%u)\n", name, inode_no);
 
-    // Traverse existing extents
-    extent = parent_inode->extent_list; // Start from the first extent
+    // Traverse extents to find a free slot
+    extent = parent_inode->extent_list;
     while (extent) {
-        pr_info("osfs_add_dir_entry: Traversing extent start_block=%u, length=%u\n",
-                extent->start_block, extent->length);
-
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
-        // Look for an empty slot
         for (i = 0; i < dir_entry_count; i++) {
-            pr_debug("osfs_add_dir_entry: Checking entry[%d]: filename='%s', inode_no=%u\n",
-                     i, dir_entries[i].filename, dir_entries[i].inode_no);
+            pr_debug("osfs_add_dir_entry: Checking slot %d (inode_no=%u)\n", i, dir_entries[i].inode_no);
 
+            // Find an empty slot
             if (dir_entries[i].inode_no == 0) {
                 memset(dir_entries[i].filename, 0, MAX_FILENAME_LEN);
                 strncpy(dir_entries[i].filename, name, name_len);
                 dir_entries[i].filename[name_len] = '\0';
                 dir_entries[i].inode_no = inode_no;
 
-                parent_inode->i_size += sizeof(struct osfs_dir_entry); // Update directory size
-                pr_info("osfs_add_dir_entry: Successfully added '%s' at entry[%d]\n", name, i);
+                parent_inode->i_size += sizeof(struct osfs_dir_entry);
+                pr_info("osfs_add_dir_entry: Added entry '%s' at slot %d\n", name, i);
                 return 0; // Success
             }
         }
 
-        extent = extent->next; // Move to the next extent
+        extent = extent->next; // Go to the next extent
     }
 
-    // No free slot found, allocate a new extent
+    // No free slot, allocate a new extent
     pr_info("osfs_add_dir_entry: No free slot found, allocating new extent\n");
 
     uint32_t new_start_block;
-    ret = osfs_alloc_extent(sb_info, &new_start_block, 1);
-    if (ret) {
+    if (osfs_alloc_extent(sb_info, &new_start_block, 1) != 0) {
         pr_err("osfs_add_dir_entry: Failed to allocate new extent\n");
-        return ret;
+        return -ENOSPC;
     }
 
-    // Add the new extent
+    // Initialize the new extent
     struct osfs_extent *new_extent = kmalloc(sizeof(struct osfs_extent), GFP_KERNEL);
     if (!new_extent) {
-        pr_err("osfs_add_dir_entry: Memory allocation for new extent failed\n");
+        pr_err("osfs_add_dir_entry: Failed to allocate memory for new extent\n");
         return -ENOMEM;
     }
 
     new_extent->start_block = new_start_block;
-    new_extent->length = 1;  // 1 block
+    new_extent->length = 1;
     new_extent->next = NULL;
 
-    // Attach the new extent to the linked list
     if (!parent_inode->extent_list) {
-        parent_inode->extent_list = new_extent; // First extent
-        pr_info("osfs_add_dir_entry: Added new extent as the first extent\n");
+        parent_inode->extent_list = new_extent;
     } else {
         extent = parent_inode->extent_list;
         while (extent->next) {
-            extent = extent->next; // Traverse to the end
+            extent = extent->next;
         }
-        extent->next = new_extent; // Attach at the end
-        pr_info("osfs_add_dir_entry: Added new extent to the linked list\n");
+        extent->next = new_extent;
     }
 
     // Initialize the new block
     dir_data_block = sb_info->data_blocks + new_start_block * BLOCK_SIZE;
+    memset(dir_data_block, 0, BLOCK_SIZE); // Zero the block
     dir_entries = (struct osfs_dir_entry *)dir_data_block;
-    memset(dir_entries, 0, BLOCK_SIZE); // Clear the block
 
     strncpy(dir_entries[0].filename, name, name_len);
     dir_entries[0].filename[name_len] = '\0';
     dir_entries[0].inode_no = inode_no;
 
-    parent_inode->i_size += sizeof(struct osfs_dir_entry); // Update directory size
-    parent_inode->num_extents++;                          // Update extent count
-    pr_info("osfs_add_dir_entry: Successfully added '%s' to new extent\n", name);
+    parent_inode->i_size += sizeof(struct osfs_dir_entry);
+    parent_inode->num_extents++;
+    pr_info("osfs_add_dir_entry: Added entry '%s' in a new extent\n", name);
 
     return 0;
 }
