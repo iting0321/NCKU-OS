@@ -51,13 +51,13 @@ void osfs_free_extents(struct osfs_inode *osfs_inode)
 
     while (cur) {
         next = cur->next;   // Save the pointer to the next extent
-        struct osfs_extent *tmp = cur;
-        kfree(tmp);         // Free the cur extent
+        kfree(cur);         // Free the current extent
         cur = next;         // Move to the next extent
     }
 
     osfs_inode->extent_list = NULL;
     osfs_inode->i_blocks = 0;
+    osfs_inode->num_extents = 0;  // Reset the extent count
 }
 
 /**
@@ -199,9 +199,11 @@ int osfs_add_extent(struct osfs_inode *osfs_inode, uint32_t start_block, uint32_
         cur->next = new_extent; // Append at the end
     }
 
-    osfs_inode->i_blocks += length; // Update total block count
+    osfs_inode->i_blocks += length;   // Update total block count
+    osfs_inode->num_extents++;        // Increment extent count
     return 0;
 }
+
 
 void osfs_free_data_block(struct osfs_sb_info *sb_info, uint32_t block_no)
 {

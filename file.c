@@ -25,6 +25,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
     ssize_t bytes_read = 0;
     size_t remaining = len;
     size_t offset, to_read;
+    int extent_count = 0;
 
     // Check for EOF
     if (*ppos >= osfs_inode->i_size)
@@ -35,13 +36,14 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         len = osfs_inode->i_size - *ppos;
 
     // Traverse extents to read data
-    while (remaining > 0 && extent) {
+    while (remaining > 0 && extent_count < osfs_inode->num_extents && extent) {
         size_t extent_start = extent->start_block * BLOCK_SIZE;
         size_t extent_end = extent_start + extent->length * BLOCK_SIZE;
 
         // Skip extents before the current position
         if (*ppos >= extent_end) {
             extent = extent->next;
+            extent_count++;
             continue;
         }
 
@@ -70,6 +72,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
 
 
 
+
 /**
  * Function: osfs_write
  * Description: Writes data to a file.
@@ -93,13 +96,16 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     ssize_t bytes_written = 0;
     size_t remaining = len;
     size_t offset, to_write;
+    int extent_count = 0;
     int ret;
 
     // Traverse the extent list to find the correct extent or allocate a new one
     while (remaining > 0) {
         // Find the last extent or an extent that can accommodate the write
-        while (extent && *ppos >= (extent->start_block * BLOCK_SIZE + extent->length * BLOCK_SIZE)) {
+        while (extent && extent_count < osfs_inode->num_extents &&
+               *ppos >= (extent->start_block * BLOCK_SIZE + extent->length * BLOCK_SIZE)) {
             extent = extent->next;
+            extent_count++;
         }
 
         // Allocate a new extent if necessary
