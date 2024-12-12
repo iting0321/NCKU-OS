@@ -25,7 +25,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
     size_t offset, to_read;
     void *data_block;
     int i;
-
+    pr_info("osfs_read: len %zu \n", len);
     // If the file is empty or the read position exceeds file size, return 0
     if (osfs_inode->num_extents == 0 || *ppos >= osfs_inode->i_size)
         return 0;
@@ -49,7 +49,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
 
         // Determine the number of bytes to read from this extent
         to_read = min(remaining, extent_end - (*ppos + offset));
-
+        pr_info("osfs_read: offset %zu bytes from file inode %lu\n", offset, to_read);
         // Get the starting point in the data block
         data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE + offset;
 
@@ -62,7 +62,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         bytes_read += to_read;
         remaining -= to_read;
     }
-
+    pr_info("osfs_read: Read %zu bytes from file inode %lu\n", bytes_read, inode->i_ino);
     return bytes_read;
 }
 
@@ -140,7 +140,8 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     osfs_inode->__i_mtime = current_time(inode);
     osfs_inode->__i_ctime = current_time(inode);
     mark_inode_dirty(inode);
-
+    inode->i_size += bytes_written;
+     pr_info("osfs_write: Wrote %zu bytes to file inode %lu\n", bytes_written, inode->i_ino);
     return bytes_written;
 }
 
