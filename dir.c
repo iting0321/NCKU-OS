@@ -85,7 +85,7 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
             return 0; // No more entries to emit
         }
-        ctx->pos += 2; // Update position to account for '.' and '..'
+        //ctx->pos += 2; // Update position to account for '.' and '..'
     }
 
     // Traverse extents
