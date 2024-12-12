@@ -75,55 +75,65 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
     struct osfs_extent *extent;
-    int dir_entry_count, i;
-    int entries_emitted = 0;
+    int dir_entry_count, i, entry_index = 0;
 
-    pr_info("osfs_iterate: Starting directory iteration for inode %lu\n", inode->i_ino);
+    pr_info("osfs_iterate: Starting directory iteration for inode %lu (ctx->pos=%llu)\n",
+            inode->i_ino, ctx->pos);
 
     // Emit '.' and '..' if ctx->pos is 0
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx)) {
             pr_warn("osfs_iterate: Failed to emit '.' and '..'\n");
-            return 0; // No more entries to emit
+            return 0; // Stop if unable to emit
         }
-        ctx->pos += 2; // Update position
+        ctx->pos += 2; // Increment position for '.' and '..'
     }
 
-    // Traverse extents
+    // Traverse extents to emit directory entries
     extent = osfs_inode->extent_list;
+    int extent_index = 0;
+
     while (extent) {
-        pr_info("osfs_iterate: Traversing extent (start_block=%u, length=%u)\n",
-                extent->start_block, extent->length);
+        pr_info("osfs_iterate: Traversing extent[%d]: start_block=%u, length=%u\n",
+                extent_index, extent->start_block, extent->length);
 
         dir_data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE;
         dir_entries = (struct osfs_dir_entry *)dir_data_block;
         dir_entry_count = (extent->length * BLOCK_SIZE) / sizeof(struct osfs_dir_entry);
 
-        for (i = 0; i < dir_entry_count; i++) {
+        for (i = 0; i < dir_entry_count; i++, entry_index++) {
             struct osfs_dir_entry *entry = &dir_entries[i];
 
-            // Skip invalid or empty entries
-            if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
-                pr_debug("osfs_iterate: Skipping invalid entry at slot %d\n", i);
+            // Skip entries already processed
+            if (entry_index < ctx->pos) {
                 continue;
             }
 
-            // Emit the entry
-            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
-                pr_warn("osfs_iterate: Buffer full, stopping iteration\n");
-                return 0; // Stop gracefully if buffer is full
+            // Skip invalid or empty entries
+            if (strlen(entry->filename) == 0 || entry->inode_no == 0) {
+                pr_debug("osfs_iterate: Skipping invalid entry at slot %d (filename='%s', inode_no=%u)\n",
+                         i, entry->filename, entry->inode_no);
+                continue;
             }
 
-            pr_info("osfs_iterate: Emitted entry[%d]: filename='%s', inode_no=%u\n", i, entry->filename, entry->inode_no);
-            ctx->pos++; // Update directory position
-            entries_emitted++;
+            // Emit valid directory entry
+            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, DT_UNKNOWN)) {
+                pr_warn("osfs_iterate: Buffer full, stopping iteration\n");
+                return 0; // Stop if buffer is full
+            }
+
+            pr_info("osfs_iterate: Emitted entry[%d]: filename='%s', inode_no=%u\n",
+                    entry_index, entry->filename, entry->inode_no);
+
+            ctx->pos++; // Increment position after emitting
         }
 
         extent = extent->next; // Move to the next extent
+        extent_index++;
     }
 
-    pr_info("osfs_iterate: Finished directory iteration, emitted %d entries\n", entries_emitted);
-    return 0;
+    pr_info("osfs_iterate: Finished directory iteration, emitted %llu entries\n", ctx->pos - 2);
+    return 0; // Successfully completed the iteration
 }
 
 
