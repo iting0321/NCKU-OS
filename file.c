@@ -56,8 +56,10 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         data_block = sb_info->data_blocks + extent->start_block * BLOCK_SIZE + offset;
 
         // Copy data to user space
-        if (copy_to_user(buf + bytes_read, data_block, to_read))
+        if (copy_to_user(buf + bytes_read, data_block, to_read)){
+            pr_info("copy_to_user error\n");
             return -EFAULT;
+        }
 
         // Update counters and positions
         *ppos += to_read;

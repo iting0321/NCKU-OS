@@ -18,35 +18,37 @@ static struct dentry *osfs_lookup(struct inode *dir, struct dentry *dentry, unsi
 {
     struct osfs_sb_info *sb_info = dir->i_sb->s_fs_info;
     struct osfs_inode *parent_inode = dir->i_private;
-    struct osfs_dir_entry *dir_entries;
-    struct inode *inode = NULL;
     void *dir_data_block;
-    int i, ext;
+    struct osfs_dir_entry *dir_entries;
+    int dir_entry_count;
+    int i;
+    struct inode *inode = NULL;
 
     pr_info("osfs_lookup: Looking up '%.*s' in inode %lu\n",
             (int)dentry->d_name.len, dentry->d_name.name, dir->i_ino);
 
-    // Traverse all extents of the directory
-    for (ext = 0; ext < parent_inode->num_extents; ext++) {
-        dir_data_block = sb_info->data_blocks + parent_inode->extents[ext].start_block * BLOCK_SIZE;
-        int dir_entry_count = parent_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
-        dir_entries = (struct osfs_dir_entry *)dir_data_block;
+    // Read the parent directory's data block
+    dir_data_block = sb_info->data_blocks + parent_inode->i_block * BLOCK_SIZE;
 
-        // Search for the file within this extent
-        for (i = 0; i < dir_entry_count; i++) {
-            if (strlen(dir_entries[i].filename) == dentry->d_name.len &&
-                strncmp(dir_entries[i].filename, dentry->d_name.name, dentry->d_name.len) == 0) {
-                inode = osfs_iget(dir->i_sb, dir_entries[i].inode_no);
-                if (IS_ERR(inode)) {
-                    pr_err("osfs_lookup: Error getting inode %u\n", dir_entries[i].inode_no);
-                    return ERR_CAST(inode);
-                }
-                return d_splice_alias(inode, dentry);
+    // Calculate the number of directory entries
+    dir_entry_count = parent_inode->i_size / sizeof(struct osfs_dir_entry);
+    dir_entries = (struct osfs_dir_entry *)dir_data_block;
+
+    // Traverse the directory entries to find a matching filename
+    for (i = 0; i < dir_entry_count; i++) {
+        if (strlen(dir_entries[i].filename) == dentry->d_name.len &&
+            strncmp(dir_entries[i].filename, dentry->d_name.name, dentry->d_name.len) == 0) {
+            // File found, get inode
+            inode = osfs_iget(dir->i_sb, dir_entries[i].inode_no);
+            if (IS_ERR(inode)) {
+                pr_err("osfs_lookup: Error getting inode %u\n", dir_entries[i].inode_no);
+                return ERR_CAST(inode);
             }
+            return d_splice_alias(inode, dentry);
         }
     }
 
-    return NULL; // File not found
+    return NULL;
 }
 
 /**
@@ -64,32 +66,33 @@ static int osfs_iterate(struct file *filp, struct dir_context *ctx)
     struct inode *inode = file_inode(filp);
     struct osfs_sb_info *sb_info = inode->i_sb->s_fs_info;
     struct osfs_inode *osfs_inode = inode->i_private;
-    struct osfs_dir_entry *dir_entries;
     void *dir_data_block;
-    int i, ext;
+    struct osfs_dir_entry *dir_entries;
+    int dir_entry_count;
+    int i;
 
     if (ctx->pos == 0) {
         if (!dir_emit_dots(filp, ctx))
             return 0;
     }
 
-    // Traverse all extents of the directory
-    for (ext = 0; ext < osfs_inode->num_extents; ext++) {
-        dir_data_block = sb_info->data_blocks + osfs_inode->extents[ext].start_block * BLOCK_SIZE;
-        int dir_entry_count = osfs_inode->extents[ext].length * BLOCK_SIZE / sizeof(struct osfs_dir_entry);
-        dir_entries = (struct osfs_dir_entry *)dir_data_block;
+    dir_data_block = sb_info->data_blocks + osfs_inode->i_block * BLOCK_SIZE;
+    dir_entry_count = osfs_inode->i_size / sizeof(struct osfs_dir_entry);
+    dir_entries = (struct osfs_dir_entry *)dir_data_block;
 
-        for (i = ctx->pos - 2; i < dir_entry_count; i++) {
-            struct osfs_dir_entry *entry = &dir_entries[i];
-            unsigned int type = DT_UNKNOWN;
+    /* Adjust the index based on ctx->pos */
+    i = ctx->pos - 2;
 
-            if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
-                pr_err("osfs_iterate: dir_emit failed for entry '%s'\n", entry->filename);
-                return -EINVAL;
-            }
+    for (; i < dir_entry_count; i++) {
+        struct osfs_dir_entry *entry = &dir_entries[i];
+        unsigned int type = DT_UNKNOWN;
 
-            ctx->pos++;
+        if (!dir_emit(ctx, entry->filename, strlen(entry->filename), entry->inode_no, type)) {
+            pr_err("osfs_iterate: dir_emit failed for entry '%s'\n", entry->filename);
+            return -EINVAL;
         }
+
+        ctx->pos++;
     }
 
     return 0;
