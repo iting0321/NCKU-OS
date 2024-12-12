@@ -36,6 +36,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
 
     // Traverse extents to read data
     for (i = 0; i < osfs_inode->num_extents && remaining > 0; i++) {
+        pr_info("osfs_read : %d\n",i);
         struct osfs_extent *extent = &osfs_inode->extents[i];
         size_t extent_start = extent->start_block * BLOCK_SIZE;
         size_t extent_end = extent_start + extent->length * BLOCK_SIZE;
@@ -91,7 +92,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     size_t remaining = len;
     size_t offset, to_write;
     int ret, i;
-
+    pr_info("osfs_write: len %zu \n", len);
     // Ensure there's space for new extents
     if (osfs_inode->num_extents >= MAX_EXTENTS) {
         pr_err("osfs_write: Maximum number of extents reached\n");
@@ -100,6 +101,8 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
 
     // Loop to handle writing across multiple extents
     while (remaining > 0) {
+    pr_info("osfs_write: remaining %zu \n", remaining);
+
         struct osfs_extent *extent = &osfs_inode->extents[osfs_inode->num_extents - 1];
 
         // Check if the last extent has free space; if not, allocate a new extent
@@ -140,7 +143,7 @@ static ssize_t osfs_write(struct file *filp, const char __user *buf, size_t len,
     osfs_inode->__i_mtime = current_time(inode);
     osfs_inode->__i_ctime = current_time(inode);
     mark_inode_dirty(inode);
-    inode->i_size += bytes_written;
+    osfs_inode ->i_size += bytes_written;
      pr_info("osfs_write: Wrote %zu bytes to file inode %lu\n", bytes_written, inode->i_ino);
     return bytes_written;
 }
