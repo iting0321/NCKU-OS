@@ -36,7 +36,7 @@ static ssize_t osfs_read(struct file *filp, char __user *buf, size_t len, loff_t
         len = osfs_inode->i_size - *ppos;
 
     // Traverse extents to read data
-    while (remaining > 0 && extent_count < osfs_inode->num_extents && extent) {
+    for (i = 0; i < osfs_inode->num_extents && remaining > 0; i++) {
         size_t extent_start = extent->start_block * BLOCK_SIZE;
         size_t extent_end = extent_start + extent->length * BLOCK_SIZE;
 
